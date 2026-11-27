@@ -15,6 +15,7 @@ import {
 } from '../lib/golf-schedule';
 import { AdminPlayerSelector } from './AdminPlayerSelector';
 import { TeeTimeEditModal } from './TeeTimeEditModal';
+import { TeeTimeMoveModal } from './TeeTimeMoveModal';
 import { EuropeanDateInput } from './EuropeanDateInput';
 
 interface TeeTimesViewProps {
@@ -30,10 +31,16 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
     firebaseUser,
     profile,
     isStaff,
+    managedCourseSlugs,
+    canManageCourse,
     signInWithGoogle,
     authFetch,
   } = useAuth();
   const [courseSlug, setCourseSlug] = useState<string>(initialCourseSlug);
+  const canManageCurrentCourse = isStaff && canManageCourse(courseSlug);
+  const managedCoursesLabel = managedCourseSlugs
+    .map((slug) => (slug === 'aguas-santas' ? 'Golf Aguas Santas' : 'Golf Guitiriz'))
+    .join(' y ');
   const [date, setDate] = useState<string>(getTodayIsoDate());
   const [sessionFilter, setSessionFilter] = useState<'all' | 'morning' | 'afternoon'>('all');
   const [onlyAvailable, setOnlyAvailable] = useState(false);
@@ -70,6 +77,7 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
   const [adminSearch, setAdminSearch] = useState('');
   const [adminPlayerSearch, setAdminPlayerSearch] = useState('');
   const [editingTeeTime, setEditingTeeTime] = useState<TeeTimeReservationRow | null>(null);
+  const [movingTeeTime, setMovingTeeTime] = useState<TeeTimeReservationRow | null>(null);
   const desiredSlotTimeRef = useRef<string | null>(null);
   const sidePanelRef = useRef<HTMLElement | null>(null);
 
@@ -359,7 +367,7 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
 
   const handleReserve = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isStaff || !selectedSlot || !data) return;
+    if (!canManageCurrentCourse || !selectedSlot || !data) return;
     setSubmitError(null);
     setConfirmation(null);
 
@@ -513,9 +521,12 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
           <div>
             <p className="text-xs text-white/75">
               Modo Superusuario · {profile?.email}
+              {!canManageCurrentCourse ? ' · Solo consulta en este campo' : ''}
             </p>
             <p className="text-sm font-semibold mt-0.5">
-              Titulares visibles en parrilla, edición directa de reservas y consulta completa de jugadores
+              {canManageCurrentCourse
+                ? 'Titulares visibles en parrilla, edición directa de reservas y consulta completa de jugadores'
+                : `Modo solo consulta en ${data?.course.name || courseSlug} · Gestión habilitada en ${managedCoursesLabel}`}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-4 text-xs font-mono tabular-nums shrink-0">
@@ -1040,9 +1051,9 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
                               )}
                             </dl>
 
-                            {(isStaff || (!isCancelled && !isBilled)) && (
+                            {(canManageCourse(sr.courseSlug) || (!isStaff && !isCancelled && !isBilled)) && (
                               <div className="pt-2.5 border-t border-[#E2E5EB] flex flex-wrap items-center justify-end gap-2">
-                                {isStaff && !isCancelled && canToggleComplete && (
+                                {isStaff && canManageCourse(sr.courseSlug) && !isCancelled && canToggleComplete && (
                                   <button
                                     type="button"
                                     onClick={() =>
@@ -1053,7 +1064,7 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
                                     {sr.isComplete ? 'Reabrir' : 'Marcar completa'}
                                   </button>
                                 )}
-                                {isStaff && !isCancelled && !isBilled && (
+                                {isStaff && canManageCourse(sr.courseSlug) && !isCancelled && !isBilled && (
                                   <button
                                     type="button"
                                     onClick={() =>
@@ -1067,7 +1078,16 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
                                     Marcar cobrado
                                   </button>
                                 )}
-                                {isStaff && (
+                                {!isCancelled && (isStaff ? canManageCourse(sr.courseSlug) : !isBilled) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setMovingTeeTime(sr)}
+                                    className="px-2.5 py-1.5 text-[11px] font-medium text-[#003087] bg-white border border-[#003087]/30 hover:bg-[#003087]/5 rounded-md"
+                                  >
+                                    Mover hora
+                                  </button>
+                                )}
+                                {isStaff && canManageCourse(sr.courseSlug) && (
                                   <button
                                     type="button"
                                     onClick={() => setEditingTeeTime(sr)}
@@ -1077,7 +1097,7 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
                                   </button>
                                 )}
                                 {!isCancelled &&
-                                  (isStaff || !isBilled) &&
+                                  (isStaff ? canManageCourse(sr.courseSlug) : !isBilled) &&
                                   (confirmCancelId === sr.id ? (
                                     <div className="inline-flex items-center gap-1.5">
                                       <button
@@ -1109,7 +1129,7 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
                                       {isStaff ? 'Cancelar' : 'Cancelar mi reserva'}
                                     </button>
                                   ))}
-                                {isStaff && isCancelled &&
+                                {isStaff && canManageCourse(sr.courseSlug) && isCancelled &&
                                   (confirmDeleteId === sr.id ? (
                                     <div className="inline-flex items-center gap-1.5">
                                       <button
@@ -1180,14 +1200,16 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
                           : 'Esta franja de salida ya tiene las 4 plazas completas.'}
                       </p>
                       <p className="text-xs text-[#555C68]">
-                        {isStaff
+                        {canManageCurrentCourse
                           ? 'Puedes editar, reabrir o cancelar cualquiera de las reservas mostradas arriba desde este mismo panel.'
+                          : isStaff
+                          ? 'Modo solo consulta: puedes revisar los datos de estas reservas, pero no editarlas ni cancelarlas en este campo.'
                           : 'Elige otro intervalo de 10 minutos en la parrilla.'}
                       </p>
                     </>
                   )}
                 </div>
-              ) : !isStaff ? (
+              ) : !canManageCurrentCourse ? (
                 <div className="space-y-4">
                   <div className="p-4 bg-[#F8FAFC] border border-[#E2E5EB] rounded-lg space-y-2">
                     <div className="flex items-center justify-between gap-2 text-xs">
@@ -1212,12 +1234,14 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
 
                   <div className="p-3.5 bg-[#F4F6F9] border border-[#E2E5EB] rounded-lg text-xs text-[#404854] space-y-1">
                     <p className="font-semibold text-[#111827]">
-                      Solo consulta de disponibilidad
+                      {isStaff
+                        ? `Solo consulta en ${data.course.name}`
+                        : 'Solo consulta de disponibilidad'}
                     </p>
                     <p className="text-[#555C68] leading-relaxed">
-                      Los usuarios player no tienen permisos para realizar reservas de tee time
-                      directamente. Para confirmar tu salida en este horario, contacta con recepción
-                      del campo de golf.
+                      {isStaff
+                        ? `Tu usuario tiene permisos de consulta en ${data.course.name}. Las nuevas reservas, ediciones y cancelaciones están habilitadas únicamente en ${managedCoursesLabel}.`
+                        : 'Los usuarios player no tienen permisos para realizar reservas de tee time directamente. Para confirmar tu salida en este horario, contacta con recepción del campo de golf.'}
                     </p>
                   </div>
 
@@ -1749,7 +1773,7 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
                                 >
                                   Ver en panel
                                 </button>
-                                {!isCancelled && canToggleComplete && (
+                                {canManageCourse(r.courseSlug) && !isCancelled && canToggleComplete && (
                                   <button
                                     type="button"
                                     onClick={() =>
@@ -1760,7 +1784,7 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
                                     {r.isComplete ? 'Reabrir' : 'Marcar completa'}
                                   </button>
                                 )}
-                                {!isCancelled && !isBilled && (
+                                {canManageCourse(r.courseSlug) && !isCancelled && !isBilled && (
                                   <button
                                     type="button"
                                     onClick={() =>
@@ -1774,14 +1798,25 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
                                     Marcar cobrado
                                   </button>
                                 )}
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingTeeTime(r)}
-                                  className="px-3 py-1 text-xs font-medium text-[#111827] border border-[#E2E5EB] hover:bg-[#EBEEF3] rounded-md"
-                                >
-                                  Editar
-                                </button>
-                                {!isCancelled && (
+                                {canManageCourse(r.courseSlug) && !isCancelled && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setMovingTeeTime(r)}
+                                    className="px-3 py-1 text-xs font-medium text-[#003087] border border-[#003087]/30 hover:bg-[#003087]/5 rounded-md"
+                                  >
+                                    Mover hora
+                                  </button>
+                                )}
+                                {canManageCourse(r.courseSlug) && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingTeeTime(r)}
+                                    className="px-3 py-1 text-xs font-medium text-[#111827] border border-[#E2E5EB] hover:bg-[#EBEEF3] rounded-md"
+                                  >
+                                    Editar
+                                  </button>
+                                )}
+                                {canManageCourse(r.courseSlug) && !isCancelled && (
                                   <button
                                     type="button"
                                     onClick={() =>
@@ -1792,7 +1827,7 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
                                     Cancelar
                                   </button>
                                 )}
-                                {isCancelled &&
+                                {canManageCourse(r.courseSlug) && isCancelled &&
                                   (confirmDeleteId === r.id ? (
                                     <div className="inline-flex items-center gap-1.5">
                                       <button
@@ -1819,6 +1854,9 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
                                       Borrar
                                     </button>
                                   ))}
+                                {!canManageCourse(r.courseSlug) && (
+                                  <span className="text-[11px] text-[#7A828E]">Solo consulta</span>
+                                )}
                               </td>
                             </tr>
                           );
@@ -1889,11 +1927,16 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
                                 type="button"
                                 onClick={() => {
                                   setStaffTargetUserId(String(u.id));
+                                  if (!canManageCourse(courseSlug) && managedCourseSlugs.length > 0) {
+                                    setCourseSlug(managedCourseSlugs[0]);
+                                  }
                                   window.scrollTo({ top: 0, behavior: 'smooth' });
                                 }}
                                 className="px-3 py-1 text-xs font-semibold text-white bg-[#003087] hover:bg-[#002266] rounded-md"
                               >
-                                Reservar para jugador
+                                {canManageCourse(courseSlug) || managedCourseSlugs.length === 0
+                                  ? 'Reservar para jugador'
+                                  : `Reservar en ${managedCoursesLabel}`}
                               </button>
                             </td>
                           </tr>
@@ -1914,6 +1957,21 @@ export const TeeTimesView: React.FC<TeeTimesViewProps> = ({
         authFetch={authFetch}
         onClose={() => setEditingTeeTime(null)}
         onSaved={refreshAll}
+      />
+
+      <TeeTimeMoveModal
+        reservation={movingTeeTime}
+        isStaff={isStaff}
+        authFetch={authFetch}
+        onClose={() => setMovingTeeTime(null)}
+        onMoved={async (newDate, newSlotTime) => {
+          desiredSlotTimeRef.current = newSlotTime;
+          if (newDate !== date) {
+            setDate(newDate);
+          } else {
+            await refreshAll();
+          }
+        }}
       />
     </div>
   );

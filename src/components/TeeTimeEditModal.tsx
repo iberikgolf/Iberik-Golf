@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import type { TeeTimeReservationRow, UserProfile } from '../types/golf';
+import type {
+  CourseAvailabilityResponse,
+  TeeTimeReservationRow,
+  UserProfile,
+} from '../types/golf';
 import { TEE_TIME_SLOTS } from '../lib/golf-schedule';
 import { EuropeanDateInput } from './EuropeanDateInput';
 
@@ -36,6 +40,7 @@ export const TeeTimeEditModal: React.FC<TeeTimeEditModalProps> = ({
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [availability, setAvailability] = useState<CourseAvailabilityResponse | null>(null);
 
   useEffect(() => {
     if (!reservation) return;
@@ -60,6 +65,27 @@ export const TeeTimeEditModal: React.FC<TeeTimeEditModalProps> = ({
     setNotes(reservation.notes || '');
     setError(null);
   }, [reservation]);
+
+  useEffect(() => {
+    if (!reservation || !date) {
+      setAvailability(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(
+      `/api/availability?course=${encodeURIComponent(reservation.courseSlug)}&date=${encodeURIComponent(date)}`
+    )
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload: CourseAvailabilityResponse | null) => {
+        if (!cancelled) setAvailability(payload);
+      })
+      .catch(() => {
+        if (!cancelled) setAvailability(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reservation, date]);
 
   if (!reservation) return null;
 
@@ -201,11 +227,32 @@ export const TeeTimeEditModal: React.FC<TeeTimeEditModalProps> = ({
                 onChange={(e) => setSlotTime(e.target.value)}
                 className="w-full px-3 py-2 text-xs font-hours border border-[#E2E5EB] rounded-lg bg-white"
               >
-                {TEE_TIME_SLOTS.map((slot) => (
-                  <option key={slot} value={slot}>
-                    {slot}
-                  </option>
-                ))}
+                {TEE_TIME_SLOTS.map((slot) => {
+                  const slotInfo = availability?.slots.find((s) => s.slotTime === slot);
+                  const isCurrent = date === reservation.date && slot === reservation.slotTime;
+                  let suffix = '';
+                  if (isCurrent) {
+                    suffix = ' · Actual';
+                  } else if (slotInfo) {
+                    if (slotInfo.isCrossoverBlocked) {
+                      suffix = ' · Cruce';
+                    } else if (slotInfo.isClosedComplete) {
+                      suffix = ' · Cerrada';
+                    } else if (slotInfo.remainingPlayers === 0) {
+                      suffix = ' · Completo';
+                    } else if (holes === 18 && slotInfo.canBook18Holes === false) {
+                      suffix = ' · Solo 9h';
+                    } else {
+                      suffix = ` · ${slotInfo.remainingPlayers} libres`;
+                    }
+                  }
+                  return (
+                    <option key={slot} value={slot}>
+                      {slot}
+                      {suffix}
+                    </option>
+                  );
+                })}
               </select>
             </div>
           </div>

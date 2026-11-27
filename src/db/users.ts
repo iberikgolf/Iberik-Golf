@@ -5,7 +5,16 @@ import { users } from './schema.ts';
 export const SUPERUSER_EMAILS = new Set([
   'jbarcalaiglesias@gmail.com',
   'guitirizgolf@gmail.com',
+  'habs.golf.iberik@gmail.com',
 ]);
+
+export const ALL_COURSE_SLUGS = ['guitiriz', 'aguas-santas'] as const;
+export type ManagedCourseSlug = (typeof ALL_COURSE_SLUGS)[number];
+
+export const SUPERUSER_EDITABLE_COURSES: Record<string, ManagedCourseSlug[]> = {
+  'guitirizgolf@gmail.com': ['guitiriz'],
+  'habs.golf.iberik@gmail.com': ['aguas-santas'],
+};
 
 export const ACADEMY_INSTRUCTOR_EMAILS = new Set<string>([
   'viztorlg@gmail.com',
@@ -17,6 +26,40 @@ export function isSuperuserEmail(email: string): boolean {
 
 export function isInstructorEmail(email: string): boolean {
   return ACADEMY_INSTRUCTOR_EMAILS.has(email.trim().toLowerCase());
+}
+
+export function getManagedCourseSlugs(email: string, role: string): ManagedCourseSlug[] {
+  const normalized = email.trim().toLowerCase();
+  if (normalized in SUPERUSER_EDITABLE_COURSES) {
+    return [...SUPERUSER_EDITABLE_COURSES[normalized]];
+  }
+  if (isSuperuserEmail(normalized) || ['admin', 'reception'].includes(role)) {
+    return [...ALL_COURSE_SLUGS];
+  }
+  return [];
+}
+
+export function canUserManageCourse(
+  user: { email: string; role: string } | undefined | null,
+  courseSlug: string
+): boolean {
+  if (!user) return false;
+  return getManagedCourseSlugs(user.email, user.role).includes(courseSlug as ManagedCourseSlug);
+}
+
+export function getDefaultCourseSlugForUser(email: string, role: string): ManagedCourseSlug {
+  const managed = getManagedCourseSlugs(email, role);
+  if (managed.length === 1) {
+    return managed[0];
+  }
+  return 'guitiriz';
+}
+
+export function formatManagedCoursesLabel(slugs: readonly string[]): string {
+  const names = slugs.map((slug) =>
+    slug === 'aguas-santas' ? 'Golf Aguas Santas' : 'Golf Guitiriz'
+  );
+  return names.join(' y ');
 }
 
 export async function getOrCreateUser(uid: string, email: string, displayName = '') {

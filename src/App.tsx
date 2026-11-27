@@ -16,6 +16,7 @@ const AppShell: React.FC = () => {
     preferredCourseSlug,
     isStaff,
     canManageAcademy,
+    managedCourseSlugs,
     loading,
     authError,
     signInWithGoogle,
@@ -30,9 +31,19 @@ const AppShell: React.FC = () => {
 
   useEffect(() => {
     if (firebaseUser && !courseManuallySelected) {
-      setSelectedCourseSlug(preferredCourseSlug);
+      setSelectedCourseSlug(
+        managedCourseSlugs.length === 1
+          ? managedCourseSlugs[0]
+          : profile?.defaultCourseSlug || preferredCourseSlug
+      );
     }
-  }, [firebaseUser, preferredCourseSlug, courseManuallySelected]);
+  }, [
+    firebaseUser,
+    managedCourseSlugs,
+    profile?.defaultCourseSlug,
+    preferredCourseSlug,
+    courseManuallySelected,
+  ]);
 
   useEffect(() => {
     fetch('/api/courses')
@@ -260,7 +271,15 @@ const AppShell: React.FC = () => {
         )}
         {activeTab === 'jugadores' && (
           <PlayersAndReceptionView
-            onBookForPlayer={(tab, userId) => handleNavigate(tab, undefined, userId)}
+            onBookForPlayer={(tab, userId) =>
+              handleNavigate(
+                tab,
+                tab === 'tee-times' && managedCourseSlugs.length === 1
+                  ? managedCourseSlugs[0]
+                  : undefined,
+                userId
+              )
+            }
           />
         )}
       </main>

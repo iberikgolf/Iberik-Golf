@@ -37,6 +37,7 @@ export const FIRESTORE_LIMITS = {
 export const BOOTSTRAPPED_ADMIN_EMAILS = new Set([
   'jbarcalaiglesias@gmail.com',
   'guitirizgolf@gmail.com',
+  'habs.golf.iberik@gmail.com',
 ]);
 
 export type PreferredCourseSlug = 'guitiriz' | 'aguas-santas';
@@ -115,6 +116,7 @@ export async function syncUserProfileToFirestore(
     licencia?: string;
     poblacion?: string;
     preferredCourseSlug?: PreferredCourseSlug;
+    defaultCourseSlug?: PreferredCourseSlug;
   }
 ): Promise<FirestoreUserProfileDoc | null> {
   if (!firebaseUser.emailVerified || !FIRESTORE_ID_PATTERN.test(firebaseUser.uid)) {
@@ -141,6 +143,9 @@ export async function syncUserProfileToFirestore(
   if (!existingSnap.exists()) {
     const isBootstrappedAdmin = BOOTSTRAPPED_ADMIN_EMAILS.has(email);
     const initialRole: FirestoreRole = isBootstrappedAdmin ? 'admin' : 'player';
+    const initialCourseSlug = normalizeCourseSlug(
+      profileInput.preferredCourseSlug ?? profileInput.defaultCourseSlug
+    );
     const payload = {
       uid: firebaseUser.uid.slice(0, FIRESTORE_LIMITS.uid),
       email,
@@ -149,7 +154,7 @@ export async function syncUserProfileToFirestore(
       telefono: clampString(profileInput.telefono, FIRESTORE_LIMITS.telefono),
       licencia: clampString(profileInput.licencia, FIRESTORE_LIMITS.licencia).toUpperCase(),
       poblacion: clampString(profileInput.poblacion, FIRESTORE_LIMITS.poblacion),
-      preferredCourseSlug: safeCourseSlug,
+      preferredCourseSlug: initialCourseSlug,
       role: initialRole,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),

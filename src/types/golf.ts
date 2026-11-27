@@ -24,6 +24,8 @@ export interface UserProfile {
   isSuperuser?: boolean;
   isInstructor?: boolean;
   canManageAcademy?: boolean;
+  managedCourseSlugs?: string[];
+  defaultCourseSlug?: 'guitiriz' | 'aguas-santas';
   createdAt?: string;
 }
 

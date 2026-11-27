@@ -15,6 +15,7 @@ import {
   getTodayIsoDate,
 } from '../lib/golf-schedule';
 import { TeeTimeEditModal } from './TeeTimeEditModal';
+import { TeeTimeMoveModal } from './TeeTimeMoveModal';
 import { AcademyEditModal } from './AcademyEditModal';
 import { EuropeanDateInput } from './EuropeanDateInput';
 
@@ -30,11 +31,19 @@ export const PlayersAndReceptionView: React.FC<PlayersAndReceptionViewProps> = (
     profile,
     isStaff,
     canManageAcademy,
+    managedCourseSlugs,
+    canManageCourse,
     signInWithGoogle,
     refreshProfile,
     authFetch,
   } = useAuth();
   const isInstructorOnly = !isStaff && canManageAcademy;
+  const scopeSummary =
+    managedCourseSlugs.length === 1
+      ? managedCourseSlugs[0] === 'aguas-santas'
+        ? 'Gestión Aguas Santas · Solo consulta Guitiriz'
+        : 'Gestión Guitiriz · Solo consulta Aguas Santas'
+      : 'Acceso integral Guitiriz & Aguas Santas';
 
   // Personal Profile State
   const [nombre, setNombre] = useState('');
@@ -85,6 +94,7 @@ export const PlayersAndReceptionView: React.FC<PlayersAndReceptionViewProps> = (
 
   // Staff Edit Tee Time Modal
   const [editingTeeTime, setEditingTeeTime] = useState<TeeTimeReservationRow | null>(null);
+  const [movingTeeTime, setMovingTeeTime] = useState<TeeTimeReservationRow | null>(null);
 
   // Staff / Instructor Edit Academy Modal
   const [editingAcademy, setEditingAcademy] = useState<AcademyBookingRow | null>(null);
@@ -525,7 +535,7 @@ export const PlayersAndReceptionView: React.FC<PlayersAndReceptionViewProps> = (
           <div className="bg-[#0B1B3B] text-white rounded-xl p-6 lg:p-8 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
             <div>
               <p className="text-xs text-white/75 tracking-wide">
-                Consola de Superusuario · {profile?.email} · Acceso integral Guitiriz & Aguas Santas
+                Consola de Superusuario · {profile?.email} · {scopeSummary}
               </p>
               <h1 className="mt-1.5 font-display text-3xl lg:text-4xl font-semibold text-white">
                 Panel de Administración y Reservas
@@ -827,13 +837,15 @@ export const PlayersAndReceptionView: React.FC<PlayersAndReceptionViewProps> = (
                                 >
                                   Tee Time
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => onBookForPlayer('academia', String(u.id))}
-                                  className="px-2.5 py-1 text-[11px] font-medium text-[#003087] border border-[#003087]/30 rounded-md hover:bg-[#003087]/5 transition-colors"
-                                >
-                                  Clase
-                                </button>
+                                {canManageAcademy && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onBookForPlayer('academia', String(u.id))}
+                                    className="px-2.5 py-1 text-[11px] font-medium text-[#003087] border border-[#003087]/30 rounded-md hover:bg-[#003087]/5 transition-colors"
+                                  >
+                                    Clase
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => onBookForPlayer('flota', String(u.id))}
@@ -1072,76 +1084,93 @@ export const PlayersAndReceptionView: React.FC<PlayersAndReceptionViewProps> = (
                               </span>
                             </td>
                             <td className="py-3 px-4 text-right whitespace-nowrap space-x-2">
-                              {isStaff && !isCancelled && canToggleComplete && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateTeeTime(r.id, { isComplete: !r.isComplete })
-                                  }
-                                  className="px-3 py-1 text-xs font-medium text-[#003087] border border-[#003087]/30 hover:bg-[#003087]/5 rounded-md"
-                                >
-                                  {r.isComplete ? 'Reabrir' : 'Marcar completa'}
-                                </button>
-                              )}
-                              {isStaff && !isCancelled && !isBilled && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateTeeTime(r.id, {
-                                      status: 'checked_in',
-                                      mewsStatus: 'BILLED_MEWS',
-                                    })
-                                  }
-                                  className="px-3 py-1 text-xs font-semibold text-white bg-[#003087] hover:bg-[#002266] rounded-md"
-                                >
-                                  Marcar cobrado
-                                </button>
-                              )}
-                              {isStaff && (
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingTeeTime(r)}
-                                  className="px-3 py-1 text-xs font-medium text-[#111827] border border-[#E2E5EB] hover:bg-[#EBEEF3] rounded-md"
-                                >
-                                  Editar
-                                </button>
-                              )}
-                              {!isCancelled && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateTeeTime(r.id, { status: 'cancelled' })}
-                                  className="px-3 py-1 text-xs font-medium text-[#B91C1C] border border-red-200 hover:bg-red-50 rounded-md"
-                                >
-                                  Cancelar
-                                </button>
-                              )}
-                              {isStaff && isCancelled &&
-                                (confirmDeleteKey === `tt:${r.id}` ? (
-                                  <div className="inline-flex items-center gap-1.5">
+                              {isStaff && !canManageCourse(r.courseSlug) ? (
+                                <span className="text-[11px] font-medium text-[#555C68]">
+                                  Solo consulta
+                                </span>
+                              ) : (
+                                <>
+                                  {isStaff && !isCancelled && canToggleComplete && (
                                     <button
                                       type="button"
-                                      onClick={() => handleDeleteCancelled('tee-time', r.id)}
-                                      className="px-3 py-1 text-xs font-semibold text-white bg-[#B91C1C] hover:bg-red-800 rounded-md"
+                                      onClick={() =>
+                                        handleUpdateTeeTime(r.id, { isComplete: !r.isComplete })
+                                      }
+                                      className="px-3 py-1 text-xs font-medium text-[#003087] border border-[#003087]/30 hover:bg-[#003087]/5 rounded-md"
                                     >
-                                      Sí, borrar
+                                      {r.isComplete ? 'Reabrir' : 'Marcar completa'}
                                     </button>
+                                  )}
+                                  {isStaff && !isCancelled && !isBilled && (
                                     <button
                                       type="button"
-                                      onClick={() => setConfirmDeleteKey(null)}
-                                      className="px-2.5 py-1 text-xs text-[#555C68] border border-[#E2E5EB] rounded-md"
+                                      onClick={() =>
+                                        handleUpdateTeeTime(r.id, {
+                                          status: 'checked_in',
+                                          mewsStatus: 'BILLED_MEWS',
+                                        })
+                                      }
+                                      className="px-3 py-1 text-xs font-semibold text-white bg-[#003087] hover:bg-[#002266] rounded-md"
                                     >
-                                      No
+                                      Marcar cobrado
                                     </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => setConfirmDeleteKey(`tt:${r.id}`)}
-                                    className="px-3 py-1 text-xs font-medium text-[#B91C1C] border border-red-200 hover:bg-red-50 rounded-md"
-                                  >
-                                    Borrar
-                                  </button>
-                                ))}
+                                  )}
+                                  {!isCancelled && (isStaff || !isBilled) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setMovingTeeTime(r)}
+                                      className="px-3 py-1 text-xs font-medium text-[#003087] border border-[#003087]/30 hover:bg-[#003087]/5 rounded-md"
+                                    >
+                                      Mover hora
+                                    </button>
+                                  )}
+                                  {isStaff && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingTeeTime(r)}
+                                      className="px-3 py-1 text-xs font-medium text-[#111827] border border-[#E2E5EB] hover:bg-[#EBEEF3] rounded-md"
+                                    >
+                                      Editar
+                                    </button>
+                                  )}
+                                  {!isCancelled && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateTeeTime(r.id, { status: 'cancelled' })}
+                                      className="px-3 py-1 text-xs font-medium text-[#B91C1C] border border-red-200 hover:bg-red-50 rounded-md"
+                                    >
+                                      Cancelar
+                                    </button>
+                                  )}
+                                  {isStaff && isCancelled &&
+                                    (confirmDeleteKey === `tt:${r.id}` ? (
+                                      <div className="inline-flex items-center gap-1.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteCancelled('tee-time', r.id)}
+                                          className="px-3 py-1 text-xs font-semibold text-white bg-[#B91C1C] hover:bg-red-800 rounded-md"
+                                        >
+                                          Sí, borrar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setConfirmDeleteKey(null)}
+                                          className="px-2.5 py-1 text-xs text-[#555C68] border border-[#E2E5EB] rounded-md"
+                                        >
+                                          No
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmDeleteKey(`tt:${r.id}`)}
+                                        className="px-3 py-1 text-xs font-medium text-[#B91C1C] border border-red-200 hover:bg-red-50 rounded-md"
+                                      >
+                                        Borrar
+                                      </button>
+                                    ))}
+                                </>
+                              )}
                             </td>
                           </tr>
                         );
@@ -1160,6 +1189,8 @@ export const PlayersAndReceptionView: React.FC<PlayersAndReceptionViewProps> = (
               <h2 className="font-display text-2xl font-semibold text-[#111827]">
                 {canManageAcademy
                   ? 'Clases de Golf con Víctor López (Guitiriz)'
+                  : isStaff
+                  ? 'Clases de Golf con Víctor López (Solo consulta · Guitiriz)'
                   : 'Mis clases con Víctor López'}
               </h2>
               <span className="text-xs font-mono text-[#555C68]">
@@ -1259,97 +1290,105 @@ export const PlayersAndReceptionView: React.FC<PlayersAndReceptionViewProps> = (
                                 : 'Pendiente en recepción'}
                             </td>
                             <td className="py-3 px-4 text-right whitespace-nowrap space-x-2">
-                              {canManageAcademy && !isCancelled && canToggleComplete && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateAcademy(b.id, { isComplete: !b.isComplete })
-                                  }
-                                  className="px-3 py-1 text-xs font-medium text-[#003087] border border-[#003087]/30 hover:bg-[#003087]/5 rounded-md"
-                                >
-                                  {b.isComplete ? 'Reabrir' : 'Marcar completa'}
-                                </button>
-                              )}
-                              {canManageAcademy && !isCancelled && !isBilled && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateAcademy(b.id, {
-                                      status: 'completed',
-                                      mewsStatus: 'BILLED_MEWS',
-                                    })
-                                  }
-                                  className="px-3 py-1 text-xs font-semibold text-white bg-[#003087] hover:bg-[#002266] rounded-md"
-                                >
-                                  Marcar cobrado
-                                </button>
-                              )}
-                              {canManageAcademy && (
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingAcademy(b)}
-                                  className="px-3 py-1 text-xs font-medium text-[#111827] border border-[#E2E5EB] hover:bg-[#EBEEF3] rounded-md"
-                                >
-                                  Editar
-                                </button>
-                              )}
-                              {!isCancelled && (
-                                confirmCancelAcademyId === b.id ? (
-                                  <>
+                              {isStaff && !canManageAcademy ? (
+                                <span className="text-[11px] font-medium text-[#555C68]">
+                                  Solo consulta
+                                </span>
+                              ) : (
+                                <>
+                                  {canManageAcademy && !isCancelled && canToggleComplete && (
                                     <button
                                       type="button"
                                       onClick={() =>
-                                        handleUpdateAcademy(b.id, { status: 'cancelled' })
+                                        handleUpdateAcademy(b.id, { isComplete: !b.isComplete })
                                       }
-                                      className="px-3 py-1 text-xs font-semibold text-white bg-[#B91C1C] hover:bg-red-800 rounded-md"
+                                      className="px-3 py-1 text-xs font-medium text-[#003087] border border-[#003087]/30 hover:bg-[#003087]/5 rounded-md"
                                     >
-                                      Sí, cancelar
+                                      {b.isComplete ? 'Reabrir' : 'Marcar completa'}
                                     </button>
+                                  )}
+                                  {canManageAcademy && !isCancelled && !isBilled && (
                                     <button
                                       type="button"
-                                      onClick={() => setConfirmCancelAcademyId(null)}
-                                      className="px-2.5 py-1 text-xs text-[#555C68] border border-[#E2E5EB] rounded-md"
+                                      onClick={() =>
+                                        handleUpdateAcademy(b.id, {
+                                          status: 'completed',
+                                          mewsStatus: 'BILLED_MEWS',
+                                        })
+                                      }
+                                      className="px-3 py-1 text-xs font-semibold text-white bg-[#003087] hover:bg-[#002266] rounded-md"
                                     >
-                                      No
+                                      Marcar cobrado
                                     </button>
-                                  </>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => setConfirmCancelAcademyId(b.id)}
-                                    className="px-3 py-1 text-xs font-medium text-[#B91C1C] border border-red-200 hover:bg-red-50 rounded-md"
-                                  >
-                                    Cancelar
-                                  </button>
-                                )
+                                  )}
+                                  {canManageAcademy && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingAcademy(b)}
+                                      className="px-3 py-1 text-xs font-medium text-[#111827] border border-[#E2E5EB] hover:bg-[#EBEEF3] rounded-md"
+                                    >
+                                      Editar
+                                    </button>
+                                  )}
+                                  {!isCancelled && (
+                                    confirmCancelAcademyId === b.id ? (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleUpdateAcademy(b.id, { status: 'cancelled' })
+                                          }
+                                          className="px-3 py-1 text-xs font-semibold text-white bg-[#B91C1C] hover:bg-red-800 rounded-md"
+                                        >
+                                          Sí, cancelar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setConfirmCancelAcademyId(null)}
+                                          className="px-2.5 py-1 text-xs text-[#555C68] border border-[#E2E5EB] rounded-md"
+                                        >
+                                          No
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmCancelAcademyId(b.id)}
+                                        className="px-3 py-1 text-xs font-medium text-[#B91C1C] border border-red-200 hover:bg-red-50 rounded-md"
+                                      >
+                                        Cancelar
+                                      </button>
+                                    )
+                                  )}
+                                  {canManageAcademy && isCancelled &&
+                                    (confirmDeleteKey === `ac:${b.id}` ? (
+                                      <div className="inline-flex items-center gap-1.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteCancelled('academy', b.id)}
+                                          className="px-3 py-1 text-xs font-semibold text-white bg-[#B91C1C] hover:bg-red-800 rounded-md"
+                                        >
+                                          Sí, borrar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setConfirmDeleteKey(null)}
+                                          className="px-2.5 py-1 text-xs text-[#555C68] border border-[#E2E5EB] rounded-md"
+                                        >
+                                          No
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmDeleteKey(`ac:${b.id}`)}
+                                        className="px-3 py-1 text-xs font-medium text-[#B91C1C] border border-red-200 hover:bg-red-50 rounded-md"
+                                      >
+                                        Borrar
+                                      </button>
+                                    ))}
+                                </>
                               )}
-                              {canManageAcademy && isCancelled &&
-                                (confirmDeleteKey === `ac:${b.id}` ? (
-                                  <div className="inline-flex items-center gap-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteCancelled('academy', b.id)}
-                                      className="px-3 py-1 text-xs font-semibold text-white bg-[#B91C1C] hover:bg-red-800 rounded-md"
-                                    >
-                                      Sí, borrar
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setConfirmDeleteKey(null)}
-                                      className="px-2.5 py-1 text-xs text-[#555C68] border border-[#E2E5EB] rounded-md"
-                                    >
-                                      No
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => setConfirmDeleteKey(`ac:${b.id}`)}
-                                    className="px-3 py-1 text-xs font-medium text-[#B91C1C] border border-red-200 hover:bg-red-50 rounded-md"
-                                  >
-                                    Borrar
-                                  </button>
-                                ))}
                             </td>
                           </tr>
                         );
@@ -1526,66 +1565,74 @@ export const PlayersAndReceptionView: React.FC<PlayersAndReceptionViewProps> = (
                                 : 'Pendiente en recepción'}
                             </td>
                             <td className="py-3 px-4 text-right whitespace-nowrap space-x-2">
-                              {isStaff && !isCancelled && !isBilled && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateVehicleReservation(v.id, {
-                                      mewsStatus: 'BILLED_MEWS',
-                                    })
-                                  }
-                                  className="px-3 py-1 text-xs font-semibold text-white bg-[#003087] hover:bg-[#002266] rounded-md"
-                                >
-                                  Marcar cobrado
-                                </button>
-                              )}
-                              {isStaff && (
-                                <button
-                                  type="button"
-                                  onClick={() => openVehicleResEditModal(v)}
-                                  className="px-3 py-1 text-xs font-medium text-[#111827] border border-[#E2E5EB] hover:bg-[#EBEEF3] rounded-md"
-                                >
-                                  Editar
-                                </button>
-                              )}
-                              {!isCancelled && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateVehicleReservation(v.id, { status: 'cancelled' })
-                                  }
-                                  className="px-3 py-1 text-xs font-medium text-[#B91C1C] border border-red-200 hover:bg-red-50 rounded-md"
-                                >
-                                  Cancelar
-                                </button>
-                              )}
-                              {isStaff && isCancelled &&
-                                (confirmDeleteKey === `vr:${v.id}` ? (
-                                  <div className="inline-flex items-center gap-1.5">
+                              {isStaff && !canManageCourse(v.courseSlug) ? (
+                                <span className="text-[11px] font-medium text-[#555C68]">
+                                  Solo consulta
+                                </span>
+                              ) : (
+                                <>
+                                  {isStaff && !isCancelled && !isBilled && (
                                     <button
                                       type="button"
-                                      onClick={() => handleDeleteCancelled('vehicle', v.id)}
-                                      className="px-3 py-1 text-xs font-semibold text-white bg-[#B91C1C] hover:bg-red-800 rounded-md"
+                                      onClick={() =>
+                                        handleUpdateVehicleReservation(v.id, {
+                                          mewsStatus: 'BILLED_MEWS',
+                                        })
+                                      }
+                                      className="px-3 py-1 text-xs font-semibold text-white bg-[#003087] hover:bg-[#002266] rounded-md"
                                     >
-                                      Sí, borrar
+                                      Marcar cobrado
                                     </button>
+                                  )}
+                                  {isStaff && (
                                     <button
                                       type="button"
-                                      onClick={() => setConfirmDeleteKey(null)}
-                                      className="px-2.5 py-1 text-xs text-[#555C68] border border-[#E2E5EB] rounded-md"
+                                      onClick={() => openVehicleResEditModal(v)}
+                                      className="px-3 py-1 text-xs font-medium text-[#111827] border border-[#E2E5EB] hover:bg-[#EBEEF3] rounded-md"
                                     >
-                                      No
+                                      Editar
                                     </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => setConfirmDeleteKey(`vr:${v.id}`)}
-                                    className="px-3 py-1 text-xs font-medium text-[#B91C1C] border border-red-200 hover:bg-red-50 rounded-md"
-                                  >
-                                    Borrar
-                                  </button>
-                                ))}
+                                  )}
+                                  {!isCancelled && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleUpdateVehicleReservation(v.id, { status: 'cancelled' })
+                                      }
+                                      className="px-3 py-1 text-xs font-medium text-[#B91C1C] border border-red-200 hover:bg-red-50 rounded-md"
+                                    >
+                                      Cancelar
+                                    </button>
+                                  )}
+                                  {isStaff && isCancelled &&
+                                    (confirmDeleteKey === `vr:${v.id}` ? (
+                                      <div className="inline-flex items-center gap-1.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDeleteCancelled('vehicle', v.id)}
+                                          className="px-3 py-1 text-xs font-semibold text-white bg-[#B91C1C] hover:bg-red-800 rounded-md"
+                                        >
+                                          Sí, borrar
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setConfirmDeleteKey(null)}
+                                          className="px-2.5 py-1 text-xs text-[#555C68] border border-[#E2E5EB] rounded-md"
+                                        >
+                                          No
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmDeleteKey(`vr:${v.id}`)}
+                                        className="px-3 py-1 text-xs font-medium text-[#B91C1C] border border-red-200 hover:bg-red-50 rounded-md"
+                                      >
+                                        Borrar
+                                      </button>
+                                    ))}
+                                </>
+                              )}
                             </td>
                           </tr>
                         );
@@ -1607,6 +1654,17 @@ export const PlayersAndReceptionView: React.FC<PlayersAndReceptionViewProps> = (
         authFetch={authFetch}
         onClose={() => setEditingTeeTime(null)}
         onSaved={loadWorkspaceData}
+      />
+
+      {/* Modal for Moving Tee Time Reservation to Available Slot */}
+      <TeeTimeMoveModal
+        reservation={movingTeeTime}
+        isStaff={isStaff}
+        authFetch={authFetch}
+        onClose={() => setMovingTeeTime(null)}
+        onMoved={async () => {
+          await loadWorkspaceData();
+        }}
       />
 
       {/* Modal for Editing Academy Booking (Staff & Instructor) */}
@@ -1681,7 +1739,9 @@ export const PlayersAndReceptionView: React.FC<PlayersAndReceptionViewProps> = (
                   onChange={(e) => setVrVehicleId(e.target.value)}
                   className="w-full px-3 py-2 text-xs border border-[#E2E5EB] rounded-lg bg-white"
                 >
-                  {fleetVehicles.map((fv) => (
+                  {fleetVehicles
+                    .filter((fv) => canManageCourse(fv.courseSlug))
+                    .map((fv) => (
                     <option key={fv.id} value={String(fv.id)}>
                       {fv.code}
                       {fv.brand ? ` · ${fv.brand}` : ''} · {fv.courseName} (

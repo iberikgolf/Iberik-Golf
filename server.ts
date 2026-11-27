@@ -5,9 +5,19 @@ import { fileURLToPath } from 'url';
 import { eq } from 'drizzle-orm';
 import { db } from './src/db/index.ts';
 import { users } from './src/db/schema.ts';
-import { isInstructorEmail, isSuperuserEmail, listUsers, upsertPlayerRecord } from './src/db/users.ts';
+import {
+  canUserManageCourse,
+  formatManagedCoursesLabel,
+  getDefaultCourseSlugForUser,
+  getManagedCourseSlugs,
+  isInstructorEmail,
+  isSuperuserEmail,
+  listUsers,
+  upsertPlayerRecord,
+} from './src/db/users.ts';
 import {
   ConflictError,
+  ForbiddenError,
   NotFoundError,
   ValidationError,
   createAcademyBooking,
@@ -45,7 +55,8 @@ function handleRouteError(res: express.Response, error: unknown, fallbackMsg: st
   if (
     error instanceof ValidationError ||
     error instanceof ConflictError ||
-    error instanceof NotFoundError
+    error instanceof NotFoundError ||
+    error instanceof ForbiddenError
   ) {
     return res.status(error.statusCode).json({ error: error.message });
   }
@@ -161,11 +172,15 @@ async function startServer() {
     const isInstructor =
       req.appUser.role === 'instructor' || isInstructorEmail(req.appUser.email);
     const canManageAcademy = isAcademyManagerUser(req.appUser);
+    const managedCourseSlugs = getManagedCourseSlugs(req.appUser.email, req.appUser.role);
+    const defaultCourseSlug = getDefaultCourseSlugForUser(req.appUser.email, req.appUser.role);
     res.json({
       ...req.appUser,
       isSuperuser,
       isInstructor,
       canManageAcademy,
+      managedCourseSlugs,
+      defaultCourseSlug,
     });
   });
 
@@ -302,6 +317,16 @@ async function startServer() {
         targetUserId,
       } = req.body ?? {};
 
+      const normalizedCourseSlug = String(courseSlug || '');
+      if (!canUserManageCourse(req.appUser, normalizedCourseSlug)) {
+        const managedLabel = formatManagedCoursesLabel(
+          getManagedCourseSlugs(req.appUser.email, req.appUser.role)
+        );
+        return res.status(403).json({
+          error: `Tu cuenta solo tiene permisos de consulta en este campo. Puedes gestionar reservas únicamente en ${managedLabel}.`,
+        });
+      }
+
       const bookingUser = await resolveBookingUser(req.appUser, targetUserId);
 
       const result = await createTeeTimeReservation({
@@ -342,6 +367,9 @@ async function startServer() {
         return res.status(400).json({ error: 'ID de reserva no válido.' });
       }
       const isStaff = isStaffUser(req.appUser);
+      const managedCourseSlugs = isStaff
+        ? getManagedCourseSlugs(req.appUser.email, req.appUser.role)
+        : undefined;
       const {
         status,
         mewsStatus,
@@ -358,6 +386,7 @@ async function startServer() {
         id,
         requesterId: req.appUser.id,
         isStaff,
+        managedCourseSlugs,
         status: typeof status === 'string' ? status : undefined,
         mewsStatus: typeof mewsStatus === 'string' ? mewsStatus : undefined,
         userId: userId !== undefined && userId !== '' ? Number(userId) : undefined,
@@ -382,7 +411,11 @@ async function startServer() {
       if (!Number.isInteger(id) || id <= 0) {
         return res.status(400).json({ error: 'ID de reserva no válido.' });
       }
-      const deleted = await deleteCancelledTeeTimeReservation(id);
+      const managedCourseSlugs = getManagedCourseSlugs(
+        req.appUser!.email,
+        req.appUser!.role
+      );
+      const deleted = await deleteCancelledTeeTimeReservation(id, managedCourseSlugs);
       res.json(deleted);
     } catch (error) {
       handleRouteError(res, error, 'Error al borrar la reserva cancelada');
@@ -393,11 +426,12 @@ async function startServer() {
   app.get('/api/academy/bookings', requireAuth, async (req: AuthRequest, res) => {
     try {
       if (!req.appUser) return res.status(401).json({ error: 'No autenticado' });
-      const canManageAcademy = isAcademyManagerUser(req.appUser);
+      const canReadAllAcademy =
+        isStaffUser(req.appUser) || isAcademyManagerUser(req.appUser);
       const date = typeof req.query.date === 'string' && req.query.date ? req.query.date : undefined;
       const rows = await listAcademyBookings({
         date,
-        userId: canManageAcademy ? undefined : req.appUser.id,
+        userId: canReadAllAcademy ? undefined : req.appUser.id,
       });
       res.json(rows);
     } catch (error) {
@@ -462,6 +496,11 @@ async function startServer() {
         return res.status(400).json({ error: 'ID no válido.' });
       }
       const canManageAcademy = isAcademyManagerUser(req.appUser);
+      if (isStaffUser(req.appUser) && !canManageAcademy) {
+        return res.status(403).json({
+          error: 'Tu cuenta solo tiene permisos de consulta en Golf Guitiriz.',
+        });
+      }
       const {
         status,
         mewsStatus,
@@ -596,6 +635,16 @@ async function startServer() {
         targetUserId,
       } = req.body ?? {};
 
+      const normalizedCourseSlug = String(courseSlug || '');
+      if (!canUserManageCourse(req.appUser, normalizedCourseSlug)) {
+        const managedLabel = formatManagedCoursesLabel(
+          getManagedCourseSlugs(req.appUser.email, req.appUser.role)
+        );
+        return res.status(403).json({
+          error: `Tu cuenta solo tiene permisos de consulta en este campo. Puedes gestionar vehículos únicamente en ${managedLabel}.`,
+        });
+      }
+
       if (vehicleType !== 'buggy' && vehicleType !== 'electric_trolley') {
         return res.status(400).json({ error: 'Tipo de vehículo no válido.' });
       }
@@ -637,10 +686,15 @@ async function startServer() {
       if (status !== 'operational' && status !== 'maintenance') {
         return res.status(400).json({ error: 'Estado de vehículo no válido.' });
       }
+      const managedCourseSlugs = getManagedCourseSlugs(
+        req.appUser!.email,
+        req.appUser!.role
+      );
       const updated = await updateVehicleStatus({
         vehicleId: id,
         status,
         notes: typeof notes === 'string' ? notes : undefined,
+        managedCourseSlugs,
       });
       res.json(updated);
     } catch (error) {
@@ -656,6 +710,9 @@ async function startServer() {
         return res.status(400).json({ error: 'ID no válido.' });
       }
       const isStaff = isStaffUser(req.appUser);
+      const managedCourseSlugs = isStaff
+        ? getManagedCourseSlugs(req.appUser.email, req.appUser.role)
+        : undefined;
       const {
         status,
         mewsStatus,
@@ -669,6 +726,7 @@ async function startServer() {
         id,
         requesterId: req.appUser.id,
         isStaff,
+        managedCourseSlugs,
         status: typeof status === 'string' ? status : undefined,
         mewsStatus: typeof mewsStatus === 'string' ? mewsStatus : undefined,
         userId: userId !== undefined && userId !== '' ? Number(userId) : undefined,
@@ -690,7 +748,11 @@ async function startServer() {
       if (!Number.isInteger(id) || id <= 0) {
         return res.status(400).json({ error: 'ID no válido.' });
       }
-      const deleted = await deleteCancelledVehicleReservation(id);
+      const managedCourseSlugs = getManagedCourseSlugs(
+        req.appUser!.email,
+        req.appUser!.role
+      );
+      const deleted = await deleteCancelledVehicleReservation(id, managedCourseSlugs);
       res.json(deleted);
     } catch (error) {
       handleRouteError(res, error, 'Error al borrar la reserva cancelada del vehículo');

@@ -105,7 +105,7 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
   }, [date]);
 
   const fetchManageBookings = useCallback(async () => {
-    if (!canManageAcademy || !firebaseUser) {
+    if ((!isStaff && !canManageAcademy) || !firebaseUser) {
       setManageBookings([]);
       setManageLoading(false);
       return;
@@ -125,7 +125,7 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
     } finally {
       setManageLoading(false);
     }
-  }, [canManageAcademy, firebaseUser, authFetch]);
+  }, [isStaff, canManageAcademy, firebaseUser, authFetch]);
 
   useEffect(() => {
     fetchAvailability();
@@ -432,7 +432,7 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
                           ? 'Grupo completo (4/4)'
                           : `${slot.remainingSpots}/4 plazas libres`}
                       </p>
-                      {canManageAcademy && namesPreview && (
+                      {(isStaff || canManageAcademy) && namesPreview && (
                         <p
                           className={`mt-1 text-[11px] truncate ${
                             isSelected ? 'text-white/80' : 'text-[#404854]'
@@ -509,7 +509,7 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
                           ? 'Grupo completo (4/4)'
                           : `${slot.remainingSpots}/4 plazas libres`}
                       </p>
-                      {canManageAcademy && namesPreview && (
+                      {(isStaff || canManageAcademy) && namesPreview && (
                         <p
                           className={`mt-1 text-[11px] truncate ${
                             isSelected ? 'text-white/80' : 'text-[#404854]'
@@ -558,7 +558,7 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
                   </div>
                 )}
 
-                {canManageAcademy && selectedSlotBookings.length > 0 && (
+                {(isStaff || canManageAcademy) && selectedSlotBookings.length > 0 && (
                   <div className="space-y-3 pb-4 border-b border-[#EBEEF3]">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold text-[#0B1B3B]">
@@ -616,68 +616,74 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
                                 {isBilled ? 'Pagado en recepción' : 'Pendiente en recepción'}
                               </span>
 
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                {canToggleComplete && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handlePatchBooking(b.id, { isComplete: !b.isComplete })
-                                    }
-                                    className="px-2 py-1 text-[11px] font-medium text-[#003087] border border-[#003087]/30 bg-white hover:bg-[#003087]/5 rounded"
-                                  >
-                                    {b.isComplete ? 'Reabrir' : 'Marcar completa'}
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingBooking(b)}
-                                  className="px-2 py-1 text-[11px] font-medium text-[#111827] border border-[#E2E5EB] bg-white hover:bg-[#EBEEF3] rounded"
-                                >
-                                  Editar
-                                </button>
-                                {!isBilled && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handlePatchBooking(b.id, {
-                                        status: 'completed',
-                                        mewsStatus: 'BILLED_MEWS',
-                                      })
-                                    }
-                                    className="px-2 py-1 text-[11px] font-semibold text-white bg-[#003087] hover:bg-[#002266] rounded"
-                                  >
-                                    Cobrado
-                                  </button>
-                                )}
-                                {confirmCancelId === b.id ? (
-                                  <>
+                              {canManageAcademy ? (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {canToggleComplete && (
                                     <button
                                       type="button"
                                       onClick={() =>
-                                        handlePatchBooking(b.id, { status: 'cancelled' })
+                                        handlePatchBooking(b.id, { isComplete: !b.isComplete })
                                       }
-                                      className="px-2 py-1 text-[11px] font-semibold text-white bg-[#B91C1C] hover:bg-red-800 rounded"
+                                      className="px-2 py-1 text-[11px] font-medium text-[#003087] border border-[#003087]/30 bg-white hover:bg-[#003087]/5 rounded"
                                     >
-                                      Sí, cancelar
+                                      {b.isComplete ? 'Reabrir' : 'Marcar completa'}
                                     </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setConfirmCancelId(null)}
-                                      className="px-2 py-1 text-[11px] text-[#555C68] border border-[#E2E5EB] bg-white rounded"
-                                    >
-                                      No
-                                    </button>
-                                  </>
-                                ) : (
+                                  )}
                                   <button
                                     type="button"
-                                    onClick={() => setConfirmCancelId(b.id)}
-                                    className="px-2 py-1 text-[11px] font-medium text-[#B91C1C] border border-red-200 bg-white hover:bg-red-50 rounded"
+                                    onClick={() => setEditingBooking(b)}
+                                    className="px-2 py-1 text-[11px] font-medium text-[#111827] border border-[#E2E5EB] bg-white hover:bg-[#EBEEF3] rounded"
                                   >
-                                    Cancelar
+                                    Editar
                                   </button>
-                                )}
-                              </div>
+                                  {!isBilled && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handlePatchBooking(b.id, {
+                                          status: 'completed',
+                                          mewsStatus: 'BILLED_MEWS',
+                                        })
+                                      }
+                                      className="px-2 py-1 text-[11px] font-semibold text-white bg-[#003087] hover:bg-[#002266] rounded"
+                                    >
+                                      Cobrado
+                                    </button>
+                                  )}
+                                  {confirmCancelId === b.id ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handlePatchBooking(b.id, { status: 'cancelled' })
+                                        }
+                                        className="px-2 py-1 text-[11px] font-semibold text-white bg-[#B91C1C] hover:bg-red-800 rounded"
+                                      >
+                                        Sí, cancelar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmCancelId(null)}
+                                        className="px-2 py-1 text-[11px] text-[#555C68] border border-[#E2E5EB] bg-white rounded"
+                                      >
+                                        No
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmCancelId(b.id)}
+                                      className="px-2 py-1 text-[11px] font-medium text-[#B91C1C] border border-red-200 bg-white hover:bg-red-50 rounded"
+                                    >
+                                      Cancelar
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-[11px] font-medium text-[#555C68]">
+                                  Solo consulta
+                                </span>
+                              )}
                             </div>
                           </div>
                         );
@@ -719,12 +725,12 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
 
                     <div className="p-3.5 bg-[#F4F6F9] border border-[#E2E5EB] rounded-lg text-xs text-[#404854] space-y-1">
                       <p className="font-semibold text-[#111827]">
-                        Solo consulta de disponibilidad
+                        {isStaff ? 'Solo consulta en Golf Guitiriz' : 'Solo consulta de disponibilidad'}
                       </p>
                       <p className="text-[#555C68] leading-relaxed">
-                        Los usuarios player no tienen permisos para reservar clases directamente.
-                        Para confirmar una plaza en este horario, contacta con recepción del campo
-                        de golf o con el profesor Víctor López.
+                        {isStaff
+                          ? 'Tu cuenta tiene permisos de edición únicamente en Golf Aguas Santas. Aquí puedes consultar la agenda de clases de Guitiriz en modo lectura.'
+                          : 'Los usuarios player no tienen permisos para reservar clases directamente. Para confirmar una plaza en este horario, contacta con recepción del campo de golf o con el profesor Víctor López.'}
                       </p>
                     </div>
                   </div>
@@ -920,12 +926,17 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
       )}
 
       {/* Full Instructor / Superuser Academy Management Ledger */}
-      {canManageAcademy && (
+      {(isStaff || canManageAcademy) && (
         <section className="space-y-4 pt-4 border-t border-[#E2E5EB]">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
             <div>
               <p className="text-xs font-medium text-[#003087]">
-                {isStaff ? 'Gestión Superusuario' : 'Panel del Profesor'} · Víctor López (Guitiriz)
+                {isStaff
+                  ? canManageAcademy
+                    ? 'Gestión Superusuario'
+                    : 'Solo consulta Superusuario'
+                  : 'Panel del Profesor'}{' '}
+                · Víctor López (Guitiriz)
               </p>
               <h2 className="font-display text-2xl font-semibold text-[#111827]">
                 Todas las reservas de clases
@@ -1071,70 +1082,76 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
                               : 'Pendiente en recepción'}
                           </td>
                           <td className="py-3 px-4 text-right whitespace-nowrap">
-                            <div className="inline-flex items-center gap-1.5">
-                              {!isCancelled && canToggleComplete && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handlePatchBooking(b.id, { isComplete: !b.isComplete })
-                                  }
-                                  className="px-2.5 py-1 text-xs font-medium text-[#003087] border border-[#003087]/30 hover:bg-[#003087]/5 rounded-md"
-                                >
-                                  {b.isComplete ? 'Reabrir' : 'Marcar completa'}
-                                </button>
-                              )}
-                              {!isCancelled && !isBilled && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handlePatchBooking(b.id, {
-                                      status: 'completed',
-                                      mewsStatus: 'BILLED_MEWS',
-                                    })
-                                  }
-                                  className="px-2.5 py-1 text-xs font-semibold text-white bg-[#003087] hover:bg-[#002266] rounded-md"
-                                >
-                                  Marcar cobrado
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => setEditingBooking(b)}
-                                className="px-2.5 py-1 text-xs font-medium text-[#111827] border border-[#E2E5EB] hover:bg-[#EBEEF3] rounded-md"
-                              >
-                                Editar
-                              </button>
-                              {!isCancelled && (
-                                confirmCancelId === b.id ? (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handlePatchBooking(b.id, { status: 'cancelled' })
-                                      }
-                                      className="px-2.5 py-1 text-xs font-semibold text-white bg-[#B91C1C] hover:bg-red-800 rounded-md"
-                                    >
-                                      Sí, cancelar
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setConfirmCancelId(null)}
-                                      className="px-2 py-1 text-xs text-[#555C68] border border-[#E2E5EB] rounded-md"
-                                    >
-                                      No
-                                    </button>
-                                  </>
-                                ) : (
+                            {canManageAcademy ? (
+                              <div className="inline-flex items-center gap-1.5">
+                                {!isCancelled && canToggleComplete && (
                                   <button
                                     type="button"
-                                    onClick={() => setConfirmCancelId(b.id)}
-                                    className="px-2.5 py-1 text-xs font-medium text-[#B91C1C] border border-red-200 hover:bg-red-50 rounded-md"
+                                    onClick={() =>
+                                      handlePatchBooking(b.id, { isComplete: !b.isComplete })
+                                    }
+                                    className="px-2.5 py-1 text-xs font-medium text-[#003087] border border-[#003087]/30 hover:bg-[#003087]/5 rounded-md"
                                   >
-                                    Cancelar
+                                    {b.isComplete ? 'Reabrir' : 'Marcar completa'}
                                   </button>
-                                )
-                              )}
-                            </div>
+                                )}
+                                {!isCancelled && !isBilled && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handlePatchBooking(b.id, {
+                                        status: 'completed',
+                                        mewsStatus: 'BILLED_MEWS',
+                                      })
+                                    }
+                                    className="px-2.5 py-1 text-xs font-semibold text-white bg-[#003087] hover:bg-[#002266] rounded-md"
+                                  >
+                                    Marcar cobrado
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingBooking(b)}
+                                  className="px-2.5 py-1 text-xs font-medium text-[#111827] border border-[#E2E5EB] hover:bg-[#EBEEF3] rounded-md"
+                                >
+                                  Editar
+                                </button>
+                                {!isCancelled && (
+                                  confirmCancelId === b.id ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handlePatchBooking(b.id, { status: 'cancelled' })
+                                        }
+                                        className="px-2.5 py-1 text-xs font-semibold text-white bg-[#B91C1C] hover:bg-red-800 rounded-md"
+                                      >
+                                        Sí, cancelar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmCancelId(null)}
+                                        className="px-2 py-1 text-xs text-[#555C68] border border-[#E2E5EB] rounded-md"
+                                      >
+                                        No
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmCancelId(b.id)}
+                                      className="px-2.5 py-1 text-xs font-medium text-[#B91C1C] border border-red-200 hover:bg-red-50 rounded-md"
+                                    >
+                                      Cancelar
+                                    </button>
+                                  )
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-[11px] font-medium text-[#555C68]">
+                                Solo consulta
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );

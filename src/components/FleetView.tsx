@@ -22,6 +22,8 @@ export const FleetView: React.FC<FleetViewProps> = ({ initialTargetUserId = '' }
     profile,
     isStaff,
     isSuperuser,
+    managedCourseSlugs,
+    canManageCourse,
     signInWithGoogle,
     authFetch,
   } = useAuth();
@@ -51,6 +53,17 @@ export const FleetView: React.FC<FleetViewProps> = ({ initialTargetUserId = '' }
   const [reserveNotes, setReserveNotes] = useState('');
   const [staffTargetUserId, setStaffTargetUserId] = useState(initialTargetUserId);
   const [playersDirectory, setPlayersDirectory] = useState<UserProfile[]>([]);
+
+  useEffect(() => {
+    if (
+      isStaff &&
+      managedCourseSlugs.length > 0 &&
+      !managedCourseSlugs.includes(reserveCourse)
+    ) {
+      setReserveCourse(managedCourseSlugs[0] as 'guitiriz' | 'aguas-santas');
+      setReserveVehicleId('');
+    }
+  }, [isStaff, managedCourseSlugs, reserveCourse]);
 
   useEffect(() => {
     if (initialTargetUserId !== undefined) {
@@ -229,7 +242,7 @@ export const FleetView: React.FC<FleetViewProps> = ({ initialTargetUserId = '' }
 
   const handleReserveVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isStaff) return;
+    if (!isStaff || !canManageCourse(reserveCourse)) return;
     setActionError(null);
     setConfirmedMsg(null);
 
@@ -655,7 +668,7 @@ export const FleetView: React.FC<FleetViewProps> = ({ initialTargetUserId = '' }
                                         </span>
                                         {holderLabel ? ` · ${holderLabel}` : ''}
                                       </span>
-                                      {isStaff && w.id > 0 && (
+                                      {isStaff && canManageCourse(v.courseSlug) && w.id > 0 && (
                                         <div className="flex flex-wrap items-center gap-1.5">
                                           {w.status === 'reserved' && (
                                             <button
@@ -724,14 +737,18 @@ export const FleetView: React.FC<FleetViewProps> = ({ initialTargetUserId = '' }
                           </td>
                           {isSuperuser && (
                             <td className="py-3 px-4 text-right whitespace-nowrap">
-                              <button
-                                type="button"
-                                onClick={() => handleToggleMaintenance(v)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium border border-[#E2E5EB] rounded-md hover:bg-[#EBEEF3] text-[#111827]"
-                              >
-                                <Wrench className="w-3 h-3" />
-                                <span>{isMaint ? 'Habilitar' : 'Mantenimiento'}</span>
-                              </button>
+                              {canManageCourse(v.courseSlug) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleMaintenance(v)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium border border-[#E2E5EB] rounded-md hover:bg-[#EBEEF3] text-[#111827]"
+                                >
+                                  <Wrench className="w-3 h-3" />
+                                  <span>{isMaint ? 'Habilitar' : 'Mantenimiento'}</span>
+                                </button>
+                              ) : (
+                                <span className="text-[11px] text-[#7A828E]">Solo consulta</span>
+                              )}
                             </td>
                           )}
                         </tr>
@@ -846,31 +863,45 @@ export const FleetView: React.FC<FleetViewProps> = ({ initialTargetUserId = '' }
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
+                  disabled={!canManageCourse('guitiriz')}
                   onClick={() => {
+                    if (!canManageCourse('guitiriz')) return;
                     setReserveCourse('guitiriz');
                     setReserveVehicleId('');
                   }}
                   className={`py-2 px-3 text-xs font-medium rounded-lg border transition-colors ${
                     reserveCourse === 'guitiriz'
                       ? 'bg-[#003087] text-white border-[#003087]'
+                      : !canManageCourse('guitiriz')
+                      ? 'bg-[#EEF1F6] text-[#A2AAA4] border-[#E2E5EB] cursor-not-allowed'
                       : 'bg-white text-[#111827] border-[#E2E5EB]'
                   }`}
                 >
                   Guitiriz (9h)
+                  {!canManageCourse('guitiriz') && (
+                    <span className="block text-[10px] font-normal">Solo consulta</span>
+                  )}
                 </button>
                 <button
                   type="button"
+                  disabled={!canManageCourse('aguas-santas')}
                   onClick={() => {
+                    if (!canManageCourse('aguas-santas')) return;
                     setReserveCourse('aguas-santas');
                     setReserveVehicleId('');
                   }}
                   className={`py-2 px-3 text-xs font-medium rounded-lg border transition-colors ${
                     reserveCourse === 'aguas-santas'
                       ? 'bg-[#003087] text-white border-[#003087]'
+                      : !canManageCourse('aguas-santas')
+                      ? 'bg-[#EEF1F6] text-[#A2AAA4] border-[#E2E5EB] cursor-not-allowed'
                       : 'bg-white text-[#111827] border-[#E2E5EB]'
                   }`}
                 >
                   Aguas Santas (18h)
+                  {!canManageCourse('aguas-santas') && (
+                    <span className="block text-[10px] font-normal">Solo consulta</span>
+                  )}
                 </button>
               </div>
             </div>
@@ -1216,7 +1247,7 @@ export const FleetView: React.FC<FleetViewProps> = ({ initialTargetUserId = '' }
                               : 'Pendiente en recepción'}
                           </td>
                           <td className="py-3 px-4 text-right whitespace-nowrap space-x-1.5">
-                            {isStaff && v.status === 'reserved' && (
+                            {isStaff && canManageCourse(v.courseSlug) && v.status === 'reserved' && (
                               <button
                                 type="button"
                                 onClick={() =>
@@ -1227,7 +1258,7 @@ export const FleetView: React.FC<FleetViewProps> = ({ initialTargetUserId = '' }
                                 Entregar
                               </button>
                             )}
-                            {isStaff && v.status === 'in_use' && (
+                            {isStaff && canManageCourse(v.courseSlug) && v.status === 'in_use' && (
                               <button
                                 type="button"
                                 onClick={() =>
@@ -1238,7 +1269,7 @@ export const FleetView: React.FC<FleetViewProps> = ({ initialTargetUserId = '' }
                                 Devuelto
                               </button>
                             )}
-                            {isStaff && !isCancelled && !isBilled && (
+                            {isStaff && canManageCourse(v.courseSlug) && !isCancelled && !isBilled && (
                               <button
                                 type="button"
                                 onClick={() =>
@@ -1251,7 +1282,7 @@ export const FleetView: React.FC<FleetViewProps> = ({ initialTargetUserId = '' }
                                 Cobrado
                               </button>
                             )}
-                            {isStaff && (
+                            {isStaff && canManageCourse(v.courseSlug) && (
                               <button
                                 type="button"
                                 onClick={() => openEditModal(v)}
@@ -1260,7 +1291,7 @@ export const FleetView: React.FC<FleetViewProps> = ({ initialTargetUserId = '' }
                                 Editar
                               </button>
                             )}
-                            {!isCancelled && (
+                            {!isCancelled && (!isStaff || canManageCourse(v.courseSlug)) && (
                               <button
                                 type="button"
                                 onClick={() =>
@@ -1272,6 +1303,7 @@ export const FleetView: React.FC<FleetViewProps> = ({ initialTargetUserId = '' }
                               </button>
                             )}
                             {isStaff &&
+                              canManageCourse(v.courseSlug) &&
                               isCancelled &&
                               (confirmDeleteResId === v.id ? (
                                 <div className="inline-flex items-center gap-1.5">
@@ -1299,6 +1331,9 @@ export const FleetView: React.FC<FleetViewProps> = ({ initialTargetUserId = '' }
                                   Borrar
                                 </button>
                               ))}
+                            {isStaff && !canManageCourse(v.courseSlug) && (
+                              <span className="text-[11px] text-[#7A828E]">Solo consulta</span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -1369,13 +1404,15 @@ export const FleetView: React.FC<FleetViewProps> = ({ initialTargetUserId = '' }
                   onChange={(e) => setEditVehicleId(e.target.value)}
                   className="w-full px-3 py-2 text-xs font-mono bg-white border border-[#E2E5EB] rounded-lg"
                 >
-                  {(overview?.vehicles || []).map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.code}
-                      {u.brand ? ` · ${u.brand}` : ''} · {u.courseName} ·{' '}
-                      {u.type === 'buggy' ? 'Buggy' : 'Carro eléctrico'}
-                    </option>
-                  ))}
+                  {(overview?.vehicles || [])
+                    .filter((u) => canManageCourse(u.courseSlug))
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.code}
+                        {u.brand ? ` · ${u.brand}` : ''} · {u.courseName} ·{' '}
+                        {u.type === 'buggy' ? 'Buggy' : 'Carro eléctrico'}
+                      </option>
+                    ))}
                 </select>
               </div>
 

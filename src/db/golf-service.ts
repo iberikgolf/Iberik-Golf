@@ -67,6 +67,13 @@ export class NotFoundError extends Error {
   }
 }
 
+export class ForbiddenError extends Error {
+  statusCode = 403;
+  constructor(message: string) {
+    super(message);
+  }
+}
+
 export async function getCourses() {
   try {
     return await db.select().from(courses).orderBy(asc(courses.holes));
@@ -670,6 +677,7 @@ export async function updateTeeTimeReservationStatus(input: {
   id: number;
   requesterId: number;
   isStaff: boolean;
+  managedCourseSlugs?: string[];
   status?: string;
   mewsStatus?: string;
   userId?: number;
@@ -694,10 +702,27 @@ export async function updateTeeTimeReservationStatus(input: {
       }
       const resRow = existing[0];
 
-      const hasStaffEditFields =
+      const courseRows = await tx
+        .select()
+        .from(courses)
+        .where(eq(courses.id, resRow.courseId))
+        .limit(1);
+      const targetCourse = courseRows[0];
+
+      if (
+        input.isStaff &&
+        input.managedCourseSlugs &&
+        targetCourse &&
+        !input.managedCourseSlugs.includes(targetCourse.slug)
+      ) {
+        throw new ForbiddenError(
+          `Tu cuenta solo tiene permisos de consulta en ${targetCourse.name}.`
+        );
+      }
+
+      const hasStaffOnlyFields =
         input.userId !== undefined ||
         input.date !== undefined ||
-        input.slotTime !== undefined ||
         input.holes !== undefined ||
         input.playersCount !== undefined ||
         input.playerNames !== undefined ||
@@ -713,8 +738,16 @@ export async function updateTeeTimeReservationStatus(input: {
       if (!input.isStaff && input.mewsStatus) {
         throw new ValidationError('Solo recepción puede actualizar el estado de cobro.');
       }
-      if (!input.isStaff && hasStaffEditFields) {
-        throw new ValidationError('Solo recepción o administración puede editar los datos de la reserva.');
+      if (!input.isStaff && hasStaffOnlyFields) {
+        throw new ValidationError('Solo recepción o administración puede editar esos datos de la reserva.');
+      }
+      if (!input.isStaff && input.slotTime !== undefined) {
+        if (resRow.status === 'cancelled') {
+          throw new ValidationError('No puedes mover de hora una reserva cancelada.');
+        }
+        if (resRow.mewsStatus === 'BILLED_MEWS') {
+          throw new ValidationError('No puedes mover de hora una reserva ya cobrada; contacta con recepción.');
+        }
       }
 
       const allowedStatuses = new Set(['confirmed', 'checked_in', 'cancelled']);
@@ -764,13 +797,6 @@ export async function updateTeeTimeReservationStatus(input: {
       if (!Number.isInteger(nextPlayersCount) || nextPlayersCount < 1 || nextPlayersCount > 4) {
         throw new ValidationError('El número de jugadores por salida debe estar entre 1 y 4.');
       }
-
-      const courseRows = await tx
-        .select()
-        .from(courses)
-        .where(eq(courses.id, resRow.courseId))
-        .limit(1);
-      const targetCourse = courseRows[0];
 
       const nextIsComplete =
         input.isComplete !== undefined ? Boolean(input.isComplete) : resRow.isComplete;
@@ -906,6 +932,7 @@ export async function updateTeeTimeReservationStatus(input: {
         if (linkedVehicles.length > 0) {
           const duration = getRoundDurationMinutes(nextHoles);
           const nextEndTime = addMinutesToTime(nextSlotTime, duration);
+          const linkedVehicleAssignmentById = new Map<number, number>();
 
           if (
             nextDate !== resRow.date ||
@@ -913,48 +940,96 @@ export async function updateTeeTimeReservationStatus(input: {
             nextHoles !== resRow.holes ||
             (resRow.status === 'cancelled' && nextStatus !== 'cancelled')
           ) {
-            const dayVehicleRes = await tx
-              .select()
-              .from(vehicleReservations)
-              .where(
-                and(
-                  eq(vehicleReservations.courseId, resRow.courseId),
-                  eq(vehicleReservations.date, nextDate),
-                  ne(vehicleReservations.status, 'cancelled')
+            const [courseVehicles, dayVehicleRes] = await Promise.all([
+              tx
+                .select()
+                .from(vehicles)
+                .where(eq(vehicles.courseId, resRow.courseId))
+                .orderBy(asc(vehicles.code)),
+              tx
+                .select()
+                .from(vehicleReservations)
+                .where(
+                  and(
+                    eq(vehicleReservations.courseId, resRow.courseId),
+                    eq(vehicleReservations.date, nextDate),
+                    ne(vehicleReservations.status, 'cancelled')
+                  )
+                ),
+            ]);
+
+            const linkedResIds = new Set(linkedVehicles.map((lv) => lv.id));
+            const busyVehicleIds = new Set(
+              dayVehicleRes
+                .filter(
+                  (other) =>
+                    !linkedResIds.has(other.id) &&
+                    timesOverlap(
+                      nextSlotTime,
+                      nextEndTime,
+                      other.startTime,
+                      getEffectiveVehicleBlockEnd(other.startTime, other.endTime, duration)
+                    )
                 )
-              );
+                .map((other) => other.vehicleId)
+            );
+            const vehicleById = new Map(courseVehicles.map((v) => [v.id, v]));
+            const claimedVehicleIds = new Set<number>();
 
             for (const lv of linkedVehicles) {
-              const clash = dayVehicleRes.some(
-                (other) =>
-                  other.vehicleId === lv.vehicleId &&
-                  other.id !== lv.id &&
-                  timesOverlap(
-                    nextSlotTime,
-                    nextEndTime,
-                    other.startTime,
-                    getEffectiveVehicleBlockEnd(other.startTime, other.endTime, duration)
-                  )
+              const currentVeh = vehicleById.get(lv.vehicleId);
+              const canKeepCurrent =
+                currentVeh &&
+                currentVeh.status === 'operational' &&
+                !busyVehicleIds.has(currentVeh.id) &&
+                !claimedVehicleIds.has(currentVeh.id);
+
+              if (canKeepCurrent) {
+                claimedVehicleIds.add(currentVeh.id);
+                linkedVehicleAssignmentById.set(lv.id, currentVeh.id);
+                continue;
+              }
+
+              const targetType = currentVeh?.type;
+              const replacement = courseVehicles.find(
+                (v) =>
+                  v.status === 'operational' &&
+                  (!targetType || v.type === targetType) &&
+                  !busyVehicleIds.has(v.id) &&
+                  !claimedVehicleIds.has(v.id)
               );
-              if (clash) {
+
+              if (!replacement) {
+                const label =
+                  targetType === 'buggy'
+                    ? 'buggies'
+                    : targetType === 'electric_trolley'
+                    ? 'carros eléctricos'
+                    : 'vehículos';
                 throw new ConflictError(
-                  `Uno de los vehículos asignados no está disponible a las ${nextSlotTime} en ${nextDate}.`
+                  `No hay suficientes ${label} disponibles a las ${nextSlotTime} en ${formatEuropeanDate(nextDate)}.`
                 );
               }
+              claimedVehicleIds.add(replacement.id);
+              linkedVehicleAssignmentById.set(lv.id, replacement.id);
             }
           }
 
-          await tx
-            .update(vehicleReservations)
-            .set({
-              userId: nextUserId,
-              date: nextDate,
-              startTime: nextSlotTime,
-              endTime: nextEndTime,
-              mewsStatus: nextMewsStatus,
-              ...(resRow.status === 'cancelled' ? { status: 'reserved' } : {}),
-            })
-            .where(eq(vehicleReservations.teeTimeReservationId, input.id));
+          for (const lv of linkedVehicles) {
+            const assignedVehicleId = linkedVehicleAssignmentById.get(lv.id) ?? lv.vehicleId;
+            await tx
+              .update(vehicleReservations)
+              .set({
+                vehicleId: assignedVehicleId,
+                userId: nextUserId,
+                date: nextDate,
+                startTime: nextSlotTime,
+                endTime: nextEndTime,
+                mewsStatus: nextMewsStatus,
+                ...(resRow.status === 'cancelled' ? { status: 'reserved' } : {}),
+              })
+              .where(eq(vehicleReservations.id, lv.id));
+          }
         }
       }
 
@@ -964,7 +1039,8 @@ export async function updateTeeTimeReservationStatus(input: {
     if (
       error instanceof NotFoundError ||
       error instanceof ValidationError ||
-      error instanceof ConflictError
+      error instanceof ConflictError ||
+      error instanceof ForbiddenError
     ) {
       throw error;
     }
@@ -1568,8 +1644,33 @@ export async function updateVehicleStatus(input: {
   vehicleId: number;
   status: 'operational' | 'maintenance';
   notes?: string;
+  managedCourseSlugs?: string[];
 }) {
   try {
+    const existingRows = await db
+      .select({
+        id: vehicles.id,
+        courseSlug: courses.slug,
+        courseName: courses.name,
+      })
+      .from(vehicles)
+      .innerJoin(courses, eq(vehicles.courseId, courses.id))
+      .where(eq(vehicles.id, input.vehicleId))
+      .limit(1);
+
+    if (existingRows.length === 0) {
+      throw new NotFoundError('Vehículo no encontrado.');
+    }
+
+    if (
+      input.managedCourseSlugs &&
+      !input.managedCourseSlugs.includes(existingRows[0].courseSlug)
+    ) {
+      throw new ForbiddenError(
+        `Tu cuenta solo tiene permisos de consulta en ${existingRows[0].courseName}.`
+      );
+    }
+
     const updated = await db
       .update(vehicles)
       .set({
@@ -1584,7 +1685,7 @@ export async function updateVehicleStatus(input: {
     }
     return updated[0];
   } catch (error) {
-    if (error instanceof NotFoundError) throw error;
+    if (error instanceof NotFoundError || error instanceof ForbiddenError) throw error;
     console.error('Error updating vehicle status:', error);
     throw new Error('Error al actualizar el estado del vehículo', { cause: error });
   }
@@ -1644,6 +1745,7 @@ export async function updateVehicleReservationStatus(input: {
   id: number;
   requesterId: number;
   isStaff: boolean;
+  managedCourseSlugs?: string[];
   status?: string;
   mewsStatus?: string;
   userId?: number;
@@ -1664,6 +1766,24 @@ export async function updateVehicleReservationStatus(input: {
         throw new NotFoundError('Reserva de vehículo no encontrada.');
       }
       const row = existing[0];
+
+      const currentCourseRows = await tx
+        .select()
+        .from(courses)
+        .where(eq(courses.id, row.courseId))
+        .limit(1);
+      const currentCourse = currentCourseRows[0];
+
+      if (
+        input.isStaff &&
+        input.managedCourseSlugs &&
+        currentCourse &&
+        !input.managedCourseSlugs.includes(currentCourse.slug)
+      ) {
+        throw new ForbiddenError(
+          `Tu cuenta solo tiene permisos de consulta en ${currentCourse.name}.`
+        );
+      }
 
       const hasStaffEditFields =
         input.userId !== undefined ||
@@ -1735,7 +1855,18 @@ export async function updateVehicleReservationStatus(input: {
         .from(courses)
         .where(eq(courses.id, nextCourseId))
         .limit(1);
-      const roundDuration = getEffectiveVehicleDuration(courseRows[0]?.roundDurationMinutes);
+      const targetCourse = courseRows[0];
+      if (
+        input.isStaff &&
+        input.managedCourseSlugs &&
+        targetCourse &&
+        !input.managedCourseSlugs.includes(targetCourse.slug)
+      ) {
+        throw new ForbiddenError(
+          `Tu cuenta solo tiene permisos de consulta en ${targetCourse.name}.`
+        );
+      }
+      const roundDuration = getEffectiveVehicleDuration(targetCourse?.roundDurationMinutes);
 
       const nextDate = input.date ?? row.date;
       if (!isValidIsoDate(nextDate)) {
@@ -1804,7 +1935,8 @@ export async function updateVehicleReservationStatus(input: {
     if (
       error instanceof NotFoundError ||
       error instanceof ValidationError ||
-      error instanceof ConflictError
+      error instanceof ConflictError ||
+      error instanceof ForbiddenError
     ) {
       throw error;
     }
@@ -2079,17 +2211,31 @@ export async function ensureCatalogAndFleetSync() {
   }
 }
 
-export async function deleteCancelledTeeTimeReservation(id: number) {
+export async function deleteCancelledTeeTimeReservation(
+  id: number,
+  managedCourseSlugs?: string[]
+) {
   try {
     return await db.transaction(async (tx) => {
       const existing = await tx
-        .select()
+        .select({
+          id: teeTimeReservations.id,
+          status: teeTimeReservations.status,
+          courseSlug: courses.slug,
+          courseName: courses.name,
+        })
         .from(teeTimeReservations)
+        .innerJoin(courses, eq(teeTimeReservations.courseId, courses.id))
         .where(eq(teeTimeReservations.id, id))
         .limit(1);
 
       if (existing.length === 0) {
         throw new NotFoundError('Reserva de tee time no encontrada.');
+      }
+      if (managedCourseSlugs && !managedCourseSlugs.includes(existing[0].courseSlug)) {
+        throw new ForbiddenError(
+          `Tu cuenta solo tiene permisos de consulta en ${existing[0].courseName}.`
+        );
       }
       if (existing[0].status !== 'cancelled') {
         throw new ValidationError('Solo se pueden borrar reservas de tee time que estén canceladas.');
@@ -2100,7 +2246,11 @@ export async function deleteCancelledTeeTimeReservation(id: number) {
       return { deletedId: id };
     });
   } catch (error) {
-    if (error instanceof NotFoundError || error instanceof ValidationError) {
+    if (
+      error instanceof NotFoundError ||
+      error instanceof ValidationError ||
+      error instanceof ForbiddenError
+    ) {
       throw error;
     }
     console.error('Error deleting cancelled tee time reservation:', error);
@@ -2136,17 +2286,31 @@ export async function deleteCancelledAcademyBooking(id: number) {
   }
 }
 
-export async function deleteCancelledVehicleReservation(id: number) {
+export async function deleteCancelledVehicleReservation(
+  id: number,
+  managedCourseSlugs?: string[]
+) {
   try {
     return await db.transaction(async (tx) => {
       const existing = await tx
-        .select()
+        .select({
+          id: vehicleReservations.id,
+          status: vehicleReservations.status,
+          courseSlug: courses.slug,
+          courseName: courses.name,
+        })
         .from(vehicleReservations)
+        .innerJoin(courses, eq(vehicleReservations.courseId, courses.id))
         .where(eq(vehicleReservations.id, id))
         .limit(1);
 
       if (existing.length === 0) {
         throw new NotFoundError('Reserva de vehículo no encontrada.');
+      }
+      if (managedCourseSlugs && !managedCourseSlugs.includes(existing[0].courseSlug)) {
+        throw new ForbiddenError(
+          `Tu cuenta solo tiene permisos de consulta en ${existing[0].courseName}.`
+        );
       }
       if (existing[0].status !== 'cancelled') {
         throw new ValidationError('Solo se pueden borrar reservas de vehículos que estén canceladas.');
@@ -2156,7 +2320,11 @@ export async function deleteCancelledVehicleReservation(id: number) {
       return { deletedId: id };
     });
   } catch (error) {
-    if (error instanceof NotFoundError || error instanceof ValidationError) {
+    if (
+      error instanceof NotFoundError ||
+      error instanceof ValidationError ||
+      error instanceof ForbiddenError
+    ) {
       throw error;
     }
     console.error('Error deleting cancelled vehicle reservation:', error);

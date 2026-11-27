@@ -35,6 +35,8 @@ interface AuthContextValue {
   isSuperuser: boolean;
   isInstructor: boolean;
   canManageAcademy: boolean;
+  managedCourseSlugs: string[];
+  canManageCourse: (courseSlug: string) => boolean;
   signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -105,6 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             telefono: data.telefono,
             licencia: data.licencia,
             poblacion: data.poblacion,
+            defaultCourseSlug: data.defaultCourseSlug,
           });
           if (syncedDoc) {
             setFirestoreProfile(syncedDoc);
@@ -207,7 +210,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isStaff = Boolean(profile && ['admin', 'reception'].includes(profile.role));
   const isSuperuser = Boolean(profile?.isSuperuser);
   const isInstructor = Boolean(profile?.isInstructor || profile?.role === 'instructor');
-  const canManageAcademy = Boolean(isStaff || isInstructor || profile?.canManageAcademy);
+  const canManageAcademy = Boolean(
+    isInstructor || (isStaff && (profile?.canManageAcademy ?? true))
+  );
+  const managedCourseSlugs = profile?.managedCourseSlugs
+    ? profile.managedCourseSlugs
+    : isStaff
+    ? ['guitiriz', 'aguas-santas']
+    : [];
+  const canManageCourse = useCallback(
+    (courseSlug: string) => managedCourseSlugs.includes(courseSlug),
+    [managedCourseSlugs]
+  );
   const preferredCourseSlug: PreferredCourseSlug =
     firestoreProfile?.preferredCourseSlug === 'aguas-santas' ? 'aguas-santas' : 'guitiriz';
 
@@ -226,6 +240,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isSuperuser,
         isInstructor,
         canManageAcademy,
+        managedCourseSlugs,
+        canManageCourse,
         signInWithGoogle,
         logout,
         refreshProfile,
