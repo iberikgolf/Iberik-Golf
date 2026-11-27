@@ -1,0 +1,239 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Ficha persistente de usuario autenticado con Google Sign-In en Iberik Hoteles Golf.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Identificador único de Firebase Auth del usuario."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 160,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+          "description": "Correo electrónico verificado de Google Sign-In."
+        },
+        "nombre": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 80,
+          "description": "Nombre del jugador."
+        },
+        "apellidos": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 120,
+          "description": "Apellidos del jugador."
+        },
+        "telefono": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 32,
+          "description": "Teléfono de contacto del jugador."
+        },
+        "licencia": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 32,
+          "description": "Número de licencia federativa."
+        },
+        "poblacion": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 80,
+          "description": "Localidad o población de residencia."
+        },
+        "preferredCourseSlug": {
+          "type": "string",
+          "enum": ["guitiriz", "aguas-santas"],
+          "description": "Campo de golf preferido del usuario."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["player", "reception", "admin", "instructor"],
+          "description": "Rol asignado en la plataforma."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Marca temporal de creación en servidor."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Marca temporal de última actualización en servidor."
+        }
+      },
+      "required": [
+        "uid",
+        "email",
+        "nombre",
+        "apellidos",
+        "telefono",
+        "licencia",
+        "poblacion",
+        "preferredCourseSlug",
+        "role",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserReservationSnapshot": {
+      "title": "UserReservationSnapshot",
+      "description": "Registro persistido en Firestore de reservas y notas personales del jugador autenticado.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID del propietario de la reserva."
+        },
+        "reservationType": {
+          "type": "string",
+          "enum": ["tee_time", "academy", "vehicle"],
+          "description": "Categoría de reserva."
+        },
+        "externalId": {
+          "type": "integer",
+          "description": "Identificador numérico de la reserva en la plataforma."
+        },
+        "courseSlug": {
+          "type": "string",
+          "enum": ["guitiriz", "aguas-santas"],
+          "description": "Campo asociado."
+        },
+        "courseName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Nombre del campo de golf."
+        },
+        "date": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Fecha ISO de la reserva."
+        },
+        "slotTime": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 5,
+          "pattern": "^\\d{2}:\\d{2}$",
+          "description": "Hora de la reserva (HH:MM)."
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "description": "Resumen legible de la reserva."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["confirmed", "reserved", "cancelled", "completed"],
+          "description": "Estado actual de la reserva."
+        },
+        "confirmationEmail": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 160,
+          "description": "Correo de confirmación asociado."
+        },
+        "playerNote": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 300,
+          "description": "Nota personal del jugador guardada en Firestore."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Marca temporal de creación en servidor."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Marca temporal de actualización en servidor."
+        }
+      },
+      "required": [
+        "ownerUid",
+        "reservationType",
+        "externalId",
+        "courseSlug",
+        "courseName",
+        "date",
+        "slotTime",
+        "summary",
+        "status",
+        "confirmationEmail",
+        "playerNote",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminEntry": {
+      "title": "AdminEntry",
+      "description": "Registro de administradores autorizados en Firestore.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID del administrador."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 160,
+          "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+          "description": "Correo electrónico del administrador."
+        },
+        "grantedBy": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 160,
+          "description": "Correo del superusuario que otorgó el acceso."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Marca temporal de concesión."
+        }
+      },
+      "required": ["uid", "email", "grantedBy", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserProfile"
+      },
+      "description": "Perfil privado y preferencias de club de cada usuario autenticado (PII aislada por propietario o administrador)."
+    },
+    "/users/{userId}/reservations/{reservationKey}": {
+      "schema": {
+        "$ref": "#/entities/UserReservationSnapshot"
+      },
+      "description": "Historial y notas personales de reservas sincronizadas en Firestore bajo el usuario propietario."
+    },
+    "/admins/{adminUid}": {
+      "schema": {
+        "$ref": "#/entities/AdminEntry"
+      },
+      "description": "Registro de administradores adicionales gestionado por superusuarios."
+    }
+  }
+}

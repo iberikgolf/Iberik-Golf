@@ -1,0 +1,285 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn() && request.auth.token.email in [
+        'jbarcalaiglesias@gmail.com',
+        'guitirizgolf@gmail.com'
+      ];
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidUserProfile(data, isCreate) {
+      return data.keys().hasAll([
+        'uid',
+        'email',
+        'nombre',
+        'apellidos',
+        'telefono',
+        'licencia',
+        'poblacion',
+        'preferredCourseSlug',
+        'role',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'uid',
+        'email',
+        'nombre',
+        'apellidos',
+        'telefono',
+        'licencia',
+        'poblacion',
+        'preferredCourseSlug',
+        'role',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      isValidId(data.uid) &&
+      data.email is string &&
+      data.email.size() >= 3 &&
+      data.email.size() <= 160 &&
+      data.email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$') &&
+      data.nombre is string &&
+      data.nombre.size() <= 80 &&
+      data.apellidos is string &&
+      data.apellidos.size() <= 120 &&
+      data.telefono is string &&
+      data.telefono.size() <= 32 &&
+      data.licencia is string &&
+      data.licencia.size() <= 32 &&
+      data.poblacion is string &&
+      data.poblacion.size() <= 80 &&
+      data.preferredCourseSlug in ['guitiriz', 'aguas-santas'] &&
+      data.role in ['player', 'reception', 'admin', 'instructor'] &&
+      data.createdAt is timestamp &&
+      (!isCreate || data.createdAt == request.time) &&
+      data.updatedAt is timestamp &&
+      data.updatedAt == request.time;
+    }
+
+    function isValidReservationSnapshot(data, userId, isCreate) {
+      return data.keys().hasAll([
+        'ownerUid',
+        'reservationType',
+        'externalId',
+        'courseSlug',
+        'courseName',
+        'date',
+        'slotTime',
+        'summary',
+        'status',
+        'confirmationEmail',
+        'playerNote',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'ownerUid',
+        'reservationType',
+        'externalId',
+        'courseSlug',
+        'courseName',
+        'date',
+        'slotTime',
+        'summary',
+        'status',
+        'confirmationEmail',
+        'playerNote',
+        'createdAt',
+        'updatedAt'
+      ]) &&
+      isValidId(data.ownerUid) &&
+      data.ownerUid == userId &&
+      data.reservationType in ['tee_time', 'academy', 'vehicle'] &&
+      data.externalId is int &&
+      data.externalId > 0 &&
+      data.courseSlug in ['guitiriz', 'aguas-santas'] &&
+      data.courseName is string &&
+      data.courseName.size() >= 1 &&
+      data.courseName.size() <= 80 &&
+      data.date is string &&
+      data.date.size() == 10 &&
+      data.date.matches('^\\d{4}-\\d{2}-\\d{2}$') &&
+      data.slotTime is string &&
+      data.slotTime.size() == 5 &&
+      data.slotTime.matches('^\\d{2}:\\d{2}$') &&
+      data.summary is string &&
+      data.summary.size() >= 1 &&
+      data.summary.size() <= 240 &&
+      data.status in ['confirmed', 'reserved', 'cancelled', 'completed'] &&
+      data.confirmationEmail is string &&
+      data.confirmationEmail.size() <= 160 &&
+      data.playerNote is string &&
+      data.playerNote.size() <= 300 &&
+      data.createdAt is timestamp &&
+      (!isCreate || data.createdAt == request.time) &&
+      data.updatedAt is timestamp &&
+      data.updatedAt == request.time;
+    }
+
+    function isValidAdminEntry(data) {
+      return data.keys().hasAll(['uid', 'email', 'grantedBy', 'createdAt']) &&
+      data.keys().hasOnly(['uid', 'email', 'grantedBy', 'createdAt']) &&
+      isValidId(data.uid) &&
+      data.email is string &&
+      data.email.size() >= 3 &&
+      data.email.size() <= 160 &&
+      data.email.matches('^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$') &&
+      data.grantedBy is string &&
+      data.grantedBy.size() >= 3 &&
+      data.grantedBy.size() <= 160 &&
+      data.createdAt is timestamp &&
+      data.createdAt == request.time;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isSignedIn() && (existing().uid == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isSignedIn() &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), true) &&
+        incoming().uid == userId &&
+        (
+          (
+            isOwner(userId) &&
+            incoming().email == request.auth.token.email.lower() &&
+            incoming().role == 'player'
+          ) ||
+          isAdmin()
+        );
+
+      allow update: if isSignedIn() &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming(), false) &&
+        incoming().uid == existing().uid &&
+        incoming().email == existing().email &&
+        incoming().createdAt == existing().createdAt &&
+        (
+          (
+            isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'nombre',
+              'apellidos',
+              'telefono',
+              'licencia',
+              'poblacion',
+              'preferredCourseSlug',
+              'role',
+              'updatedAt'
+            ])
+          ) ||
+          (
+            isOwner(userId) &&
+            incoming().role == existing().role &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'nombre',
+              'apellidos',
+              'telefono',
+              'licencia',
+              'poblacion',
+              'preferredCourseSlug',
+              'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isSignedIn() && isValidId(userId) && isAdmin();
+
+      match /reservations/{reservationKey} {
+        allow get: if isSignedIn() &&
+          isValidId(userId) &&
+          isValidId(reservationKey) &&
+          (isOwner(userId) || isAdmin()) &&
+          exists(/databases/$(database)/documents/users/$(userId));
+
+        allow list: if isSignedIn() &&
+          (existing().ownerUid == request.auth.uid || isBootstrappedAdmin());
+
+        allow create: if isSignedIn() &&
+          isValidId(userId) &&
+          isValidId(reservationKey) &&
+          isValidReservationSnapshot(incoming(), userId, true) &&
+          (isOwner(userId) || isAdmin()) &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          get(/databases/$(database)/documents/users/$(userId)).data.uid == userId;
+
+        allow update: if isSignedIn() &&
+          isValidId(userId) &&
+          isValidId(reservationKey) &&
+          isValidReservationSnapshot(incoming(), userId, false) &&
+          incoming().ownerUid == existing().ownerUid &&
+          incoming().reservationType == existing().reservationType &&
+          incoming().externalId == existing().externalId &&
+          incoming().createdAt == existing().createdAt &&
+          exists(/databases/$(database)/documents/users/$(userId)) &&
+          (
+            isAdmin() ||
+            (
+              isOwner(userId) &&
+              !(existing().status in ['cancelled', 'completed']) &&
+              (
+                incoming().diff(existing()).affectedKeys().hasOnly(['playerNote', 'updatedAt']) ||
+                incoming().diff(existing()).affectedKeys().hasOnly([
+                  'courseSlug',
+                  'courseName',
+                  'date',
+                  'slotTime',
+                  'summary',
+                  'status',
+                  'confirmationEmail',
+                  'playerNote',
+                  'updatedAt'
+                ])
+              )
+            )
+          );
+
+        allow delete: if isSignedIn() && isValidId(userId) && isValidId(reservationKey) && isAdmin();
+      }
+    }
+
+    match /admins/{adminUid} {
+      allow get: if isSignedIn() && isValidId(adminUid) && (isOwner(adminUid) || isAdmin());
+      allow list: if isBootstrappedAdmin() && existing().uid is string;
+      allow create, update: if isBootstrappedAdmin() &&
+        isValidId(adminUid) &&
+        isValidAdminEntry(incoming()) &&
+        incoming().uid == adminUid;
+      allow delete: if isBootstrappedAdmin() && isValidId(adminUid);
+    }
+  }
+}
