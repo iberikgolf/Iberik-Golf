@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, RefreshCw, Search } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, RefreshCw, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import type {
   AcademyAvailabilityResponse,
@@ -10,7 +10,11 @@ import type {
 import {
   formatEuropeanDate,
   getNextWednesdayIsoDate,
+  getPastWednesdays,
+  getTodayIsoDate,
   getUpcomingWednesdays,
+  isWednesdayIsoDate,
+  shiftWednesdayIsoDate,
 } from '../lib/golf-schedule';
 import { AdminPlayerSelector } from './AdminPlayerSelector';
 import { AcademyEditModal } from './AcademyEditModal';
@@ -29,7 +33,8 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
     signInWithGoogle,
     authFetch,
   } = useAuth();
-  const upcomingWednesdays = getUpcomingWednesdays(6);
+  const todayIso = getTodayIsoDate();
+  const upcomingWednesdays = useMemo(() => getUpcomingWednesdays(6, todayIso), [todayIso]);
 
   const [date, setDate] = useState<string>(upcomingWednesdays[0]);
   const [data, setData] = useState<AcademyAvailabilityResponse | null>(null);
@@ -51,7 +56,7 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
   const [manageLoading, setManageLoading] = useState(false);
   const [manageError, setManageError] = useState<string | null>(null);
   const [manageSearch, setManageSearch] = useState('');
-  const [manageDateScope, setManageDateScope] = useState<'selected' | 'all'>('selected');
+  const [manageDateScope, setManageDateScope] = useState<'selected' | 'pending' | 'all'>('selected');
   const [editingBooking, setEditingBooking] = useState<AcademyBookingRow | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<number | null>(null);
 
@@ -257,10 +262,48 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
     );
   }, [manageBookings, date, selectedSlot]);
 
+  const pastWednesdays = useMemo(() => {
+    const base = getPastWednesdays(6, todayIso);
+    if (!isStaff && !canManageAcademy) {
+      return base;
+    }
+    const merged = new Set<string>(base);
+    for (const b of manageBookings) {
+      if (b.date < todayIso && isWednesdayIsoDate(b.date)) {
+        merged.add(b.date);
+      }
+    }
+    return Array.from(merged).sort((a, b) => a.localeCompare(b));
+  }, [todayIso, isStaff, canManageAcademy, manageBookings]);
+
+  const bookingCountsByDate = useMemo(() => {
+    const map = new Map<string, { total: number; pending: number; billed: number }>();
+    for (const b of manageBookings) {
+      if (b.status === 'cancelled') continue;
+      const current = map.get(b.date) || { total: 0, pending: 0, billed: 0 };
+      current.total += 1;
+      if (b.mewsStatus === 'BILLED_MEWS') {
+        current.billed += 1;
+      } else {
+        current.pending += 1;
+      }
+      map.set(b.date, current);
+    }
+    return map;
+  }, [manageBookings]);
+
+  const isPastSelectedDate = date < todayIso;
+
   const filteredManageBookings = useMemo(() => {
     const q = manageSearch.trim().toLowerCase();
     return manageBookings.filter((b) => {
       if (manageDateScope === 'selected' && b.date !== date) return false;
+      if (
+        manageDateScope === 'pending' &&
+        (b.status === 'cancelled' || b.mewsStatus === 'BILLED_MEWS')
+      ) {
+        return false;
+      }
       if (!q) return true;
       return [
         b.studentName,
@@ -281,6 +324,20 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
     });
   }, [manageBookings, manageDateScope, date, manageSearch]);
 
+  const ledgerSummary = useMemo(() => {
+    let billed = 0;
+    let pending = 0;
+    for (const b of filteredManageBookings) {
+      if (b.status === 'cancelled') continue;
+      if (b.mewsStatus === 'BILLED_MEWS') {
+        billed += 1;
+      } else {
+        pending += 1;
+      }
+    }
+    return { billed, pending };
+  }, [filteredManageBookings]);
+
   const morningSlots = data?.slots.filter((s) => s.session === 'morning') || [];
   const afternoonSlots = data?.slots.filter((s) => s.session === 'afternoon') || [];
 
@@ -297,16 +354,42 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
           </h1>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <EuropeanDateInput
-            ariaLabel="Fecha de clase"
-            value={date}
-            onChange={(nextDate) => {
-              setDate(nextDate);
-              setConfirmedMsg(null);
-            }}
-            className="px-3.5 py-2 text-xs font-mono bg-white border border-[#E2E5EB] rounded-lg text-[#111827]"
-          />
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                setDate((prev) => shiftWednesdayIsoDate(prev, -1));
+                setConfirmedMsg(null);
+              }}
+              aria-label="Miércoles anterior"
+              title="Miércoles anterior"
+              className="p-2 bg-white border border-[#E2E5EB] rounded-lg text-[#111827] hover:bg-[#F4F6F9]"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <EuropeanDateInput
+              ariaLabel="Fecha de clase"
+              value={date}
+              onChange={(nextDate) => {
+                setDate(nextDate);
+                setConfirmedMsg(null);
+              }}
+              className="px-3.5 py-2 text-xs font-mono bg-white border border-[#E2E5EB] rounded-lg text-[#111827]"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setDate((prev) => shiftWednesdayIsoDate(prev, 1));
+                setConfirmedMsg(null);
+              }}
+              aria-label="Miércoles siguiente"
+              title="Miércoles siguiente"
+              className="p-2 bg-white border border-[#E2E5EB] rounded-lg text-[#111827] hover:bg-[#F4F6F9]"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
           <button
             type="button"
             onClick={fetchAvailability}
@@ -318,26 +401,79 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
         </div>
       </div>
 
-      {/* Upcoming Wednesdays Quick Tabs */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium text-[#555C68] mr-2">Próximos miércoles:</span>
-        {upcomingWednesdays.map((wed) => (
-          <button
-            key={wed}
-            type="button"
-            onClick={() => {
-              setDate(wed);
-              setConfirmedMsg(null);
-            }}
-            className={`px-3 py-1.5 text-xs font-mono tabular-nums rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
-              date === wed
-                ? 'bg-[#003087] text-white border-[#003087]'
-                : 'bg-white text-[#111827] border-[#E2E5EB] hover:border-[#003087]'
-            }`}
-          >
-            {formatEuropeanDate(wed)}
-          </button>
-        ))}
+      {/* Past & Upcoming Wednesdays Quick Tabs */}
+      <div className="space-y-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-[#555C68] mr-1 min-w-[132px]">
+            Miércoles pasados:
+          </span>
+          {pastWednesdays.map((wed) => {
+            const counts = bookingCountsByDate.get(wed);
+            const isSelected = date === wed;
+            return (
+              <button
+                key={wed}
+                type="button"
+                onClick={() => {
+                  setDate(wed);
+                  setConfirmedMsg(null);
+                }}
+                className={`px-3 py-1.5 text-xs font-mono tabular-nums rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
+                  isSelected
+                    ? 'bg-[#003087] text-white border-[#003087]'
+                    : 'bg-[#F8FAFC] text-[#404854] border-[#E2E5EB] hover:border-[#003087]'
+                }`}
+              >
+                <span>{formatEuropeanDate(wed)}</span>
+                {(isStaff || canManageAcademy) && counts && counts.pending > 0 && (
+                  <span
+                    className={`ml-1.5 font-sans text-[11px] font-semibold ${
+                      isSelected ? 'text-amber-200' : 'text-[#B45309]'
+                    }`}
+                  >
+                    · {counts.pending} pend.
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-[#555C68] mr-1 min-w-[132px]">
+            Próximos miércoles:
+          </span>
+          {upcomingWednesdays.map((wed) => {
+            const counts = bookingCountsByDate.get(wed);
+            const isSelected = date === wed;
+            return (
+              <button
+                key={wed}
+                type="button"
+                onClick={() => {
+                  setDate(wed);
+                  setConfirmedMsg(null);
+                }}
+                className={`px-3 py-1.5 text-xs font-mono tabular-nums rounded-lg border transition-colors whitespace-nowrap shrink-0 ${
+                  isSelected
+                    ? 'bg-[#003087] text-white border-[#003087]'
+                    : 'bg-white text-[#111827] border-[#E2E5EB] hover:border-[#003087]'
+                }`}
+              >
+                <span>{formatEuropeanDate(wed)}</span>
+                {(isStaff || canManageAcademy) && counts && counts.pending > 0 && (
+                  <span
+                    className={`ml-1.5 font-sans text-[11px] font-semibold ${
+                      isSelected ? 'text-amber-200' : 'text-[#B45309]'
+                    }`}
+                  >
+                    · {counts.pending} pend.
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {error && (
@@ -541,6 +677,11 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
                   </h2>
                   <p className="mt-1 text-xs font-mono tabular-nums text-[#555C68]">
                     {formatEuropeanDate(date)}
+                    {isPastSelectedDate && (
+                      <span className="ml-2 font-sans font-medium text-[#B45309]">
+                        · Miércoles pasado (revisión de cobros)
+                      </span>
+                    )}
                   </p>
                 </div>
 
@@ -941,6 +1082,14 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
               <h2 className="font-display text-2xl font-semibold text-[#111827]">
                 Todas las reservas de clases
               </h2>
+              <p className="mt-1 text-xs font-mono tabular-nums text-[#555C68]">
+                {ledgerSummary.billed} {ledgerSummary.billed === 1 ? 'cobrada' : 'cobradas'}
+                {' · '}
+                <span className={ledgerSummary.pending > 0 ? 'font-semibold text-[#B45309]' : ''}>
+                  {ledgerSummary.pending}{' '}
+                  {ledgerSummary.pending === 1 ? 'pendiente de cobro' : 'pendientes de cobro'}
+                </span>
+              </p>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
@@ -966,6 +1115,17 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
                   }`}
                 >
                   Solo {formatEuropeanDate(date)}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setManageDateScope('pending')}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                    manageDateScope === 'pending'
+                      ? 'bg-white text-[#111827] shadow-xs'
+                      : 'text-[#555C68] hover:text-[#111827]'
+                  }`}
+                >
+                  Pendientes de cobro
                 </button>
                 <button
                   type="button"
@@ -1029,9 +1189,16 @@ export const AcademyView: React.FC<AcademyViewProps> = ({ initialTargetUserId = 
                       return (
                         <tr key={b.id} className="hover:bg-[#F8FAFC]">
                           <td className="py-3 px-4 font-mono tabular-nums whitespace-nowrap">
-                            <span className="font-semibold text-[#111827]">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDate(b.date);
+                                setManageDateScope('selected');
+                              }}
+                              className="font-semibold text-[#111827] hover:text-[#003087] hover:underline text-left"
+                            >
                               {formatEuropeanDate(b.date)}
-                            </span>
+                            </button>
                             <span className="mx-1.5 text-[#7A828E]">·</span>
                             <span className="font-hours text-[#003087] font-semibold">
                               {b.slotTime}

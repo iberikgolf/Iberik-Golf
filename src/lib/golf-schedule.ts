@@ -91,13 +91,9 @@ export function isWednesdayIsoDate(dateStr: string): boolean {
 }
 
 export function getNextWednesdayIsoDate(fromDateStr?: string): string {
-  const base =
-    fromDateStr && isValidIsoDate(fromDateStr)
-      ? new Date(`${fromDateStr}T12:00:00Z`)
-      : new Date();
-  const dt = new Date(
-    Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate(), 12, 0, 0)
-  );
+  const resolvedFrom =
+    fromDateStr && isValidIsoDate(fromDateStr) ? fromDateStr : getTodayIsoDate();
+  const dt = new Date(`${resolvedFrom}T12:00:00Z`);
   const day = dt.getUTCDay();
   const diff = (3 - day + 7) % 7;
   dt.setUTCDate(dt.getUTCDate() + diff);
@@ -113,6 +109,31 @@ export function getUpcomingWednesdays(count = 6, fromDateStr?: string): string[]
     dt.setUTCDate(dt.getUTCDate() + 7);
   }
   return list;
+}
+
+export function getPastWednesdays(count = 6, fromDateStr?: string): string[] {
+  const firstUpcoming = getNextWednesdayIsoDate(fromDateStr);
+  const dt = new Date(`${firstUpcoming}T12:00:00Z`);
+  const list: string[] = [];
+  for (let i = 1; i <= count; i++) {
+    const past = new Date(dt.getTime());
+    past.setUTCDate(past.getUTCDate() - i * 7);
+    list.push(past.toISOString().slice(0, 10));
+  }
+  return list.reverse();
+}
+
+export function shiftWednesdayIsoDate(dateStr: string, deltaWeeks: number): string {
+  const nextWed = getNextWednesdayIsoDate(dateStr);
+  const dt = new Date(`${nextWed}T12:00:00Z`);
+  if (isWednesdayIsoDate(dateStr)) {
+    dt.setUTCDate(dt.getUTCDate() + deltaWeeks * 7);
+  } else if (deltaWeeks < 0) {
+    dt.setUTCDate(dt.getUTCDate() + deltaWeeks * 7);
+  } else if (deltaWeeks > 1) {
+    dt.setUTCDate(dt.getUTCDate() + (deltaWeeks - 1) * 7);
+  }
+  return dt.toISOString().slice(0, 10);
 }
 
 export const COURSE_TIME_ZONE = 'Europe/Madrid';
